@@ -68,10 +68,21 @@ async def sync_moysklad_stock_and_products(dry_run: bool = False) -> dict:
                 logger.warning("could_not_fetch_stock_report", error=str(e))
 
             async with async_session_factory() as session:
+                seen_skus = set()
+                mdm_by_ms_id = {}
+                inventory_by_sku = {}
+
                 for p in ms_products:
                     p_id = p.get("id")
                     name = p.get("name", "Товар без названия")
-                    sku = p.get("article") or p.get("code") or f"MS-{p_id[:8]}"
+                    raw_sku = p.get("article") or p.get("code") or f"MS-{p_id[:8]}"
+                    sku = str(raw_sku).strip()
+                    if not sku:
+                        sku = f"MS-{p_id[:8]}"
+                    if sku in seen_skus:
+                        sku = f"{sku}-{p_id[:6]}"
+                    seen_skus.add(sku)
+
                     path_name = p.get("pathName", "")
                     brand = path_name.split("/")[-1] if path_name else "Сантехника"
                     
@@ -86,11 +97,8 @@ async def sync_moysklad_stock_and_products(dry_run: bool = False) -> dict:
                     
                     if not dry_run:
                         # 1. Обновляем mdm_products
-                        stmt = select(MdmProduct).where(MdmProduct.moysklad_id == p_id)
-                        res = await session.execute(stmt)
-                        mdm_item = res.scalars().first()
-                        
-                        if mdm_item:
+                        if p_id in mdm_by_ms_id:
+                            mdm_item = mdm_by_ms_id[p_id]
                             mdm_item.name = name
                             mdm_item.sku = sku
                             mdm_item.brand = brand
@@ -100,41 +108,65 @@ async def sync_moysklad_stock_and_products(dry_run: bool = False) -> dict:
                             mdm_item.stock_reserved = stock_reserve
                             stats["updated_mdm"] += 1
                         else:
-                            new_mdm = MdmProduct(
-                                id=uuid4(),
-                                moysklad_id=p_id,
-                                sku=sku,
-                                name=name,
-                                brand=brand,
-                                purchase_price=buy_price,
-                                retail_price=retail_price,
-                                stock_free=stock_free,
-                                stock_reserved=stock_reserve
-                            )
-                            session.add(new_mdm)
-                            stats["created_mdm"] += 1
+                            stmt = select(MdmProduct).where(MdmProduct.moysklad_id == p_id)
+                            res = await session.execute(stmt)
+                            mdm_item = res.scalars().first()
+                            
+                            if mdm_item:
+                                mdm_item.name = name
+                                mdm_item.sku = sku
+                                mdm_item.brand = brand
+                                mdm_item.purchase_price = buy_price
+                                mdm_item.retail_price = retail_price
+                                mdm_item.stock_free = stock_free
+                                mdm_item.stock_reserved = stock_reserve
+                                mdm_by_ms_id[p_id] = mdm_item
+                                stats["updated_mdm"] += 1
+                            else:
+                                new_mdm = MdmProduct(
+                                    id=uuid4(),
+                                    moysklad_id=p_id,
+                                    sku=sku,
+                                    name=name,
+                                    brand=brand,
+                                    purchase_price=buy_price,
+                                    retail_price=retail_price,
+                                    stock_free=stock_free,
+                                    stock_reserved=stock_reserve
+                                )
+                                session.add(new_mdm)
+                                mdm_by_ms_id[p_id] = new_mdm
+                                stats["created_mdm"] += 1
                             
                         # 2. Обновляем inventory_items для ABC/XYZ анализа
-                        stmt_inv = select(InventoryItem).where(InventoryItem.sku == sku)
-                        res_inv = await session.execute(stmt_inv)
-                        inv_item = res_inv.scalars().first()
-                        
-                        if inv_item:
+                        if sku in inventory_by_sku:
+                            inv_item = inventory_by_sku[sku]
                             inv_item.stock_qty = stock_qty
                             inv_item.brand = brand
                             inv_item.name = name
                         else:
-                            new_inv = InventoryItem(
-                                id=uuid4(),
-                                sku=sku,
-                                name=name,
-                                brand=brand,
-                                stock_qty=stock_qty,
-                                days_in_stock=15,
-                                abc_category="A" if retail_price > 5000000 else "B",
-                                xyz_category="X"
-                            )
-                            session.add(new_inv)
+                            stmt_inv = select(InventoryItem).where(InventoryItem.sku == sku)
+                            res_inv = await session.execute(stmt_inv)
+                            inv_item = res_inv.scalars().first()
+                            
+                            if inv_item:
+                                inv_item.stock_qty = stock_qty
+                                inv_item.brand = brand
+                                inv_item.name = name
+                                inventory_by_sku[sku] = inv_item
+                            else:
+                                new_inv = InventoryItem(
+                                    id=uuid4(),
+                                    sku=sku,
+                                    name=name,
+                                    brand=brand,
+                                    stock_qty=stock_qty,
+                                    days_in_stock=15,
+                                    abc_category="A" if retail_price > 5000000 else "B",
+                                    xyz_category="X"
+                                )
+                                session.add(new_inv)
+                                inventory_by_sku[sku] = new_inv
                         stats["inventory_items_synced"] += 1
 
                 # Записываем аудит лог
