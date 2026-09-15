@@ -1,0 +1,104 @@
+version: '3.8'
+
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    container_name: diyorgroup_db
+    restart: always
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-diyorgroup}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
+      POSTGRES_DB: ${POSTGRES_DB:-diyorgroup}
+    ports:
+      - "5432:5432"
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-diyorgroup} -d ${POSTGRES_DB:-diyorgroup}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - diyornet
+
+  redis:
+    image: redis:7-alpine
+    container_name: diyorgroup_redis
+    restart: always
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - diyornet
+
+  app:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: diyorgroup_app
+    restart: always
+    env_file:
+      - .env
+    ports:
+      - "8000:8000"
+    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./backend:/app
+    networks:
+      - diyornet
+
+  celery-worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: diyorgroup_celery_worker
+    restart: always
+    env_file:
+      - .env
+    command: celery -A workers.celery_app worker -l info -Q default,high_priority,dlq --concurrency=4
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./backend:/app
+    networks:
+      - diyornet
+
+  celery-beat:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: diyorgroup_celery_beat
+    restart: always
+    env_file:
+      - .env
+    command: celery -A workers.celery_app beat -l info
+    depends_on:
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./backend:/app
+    networks:
+      - diyornet
+
+volumes:
+  db_data:
+  redis_data:
+
+networks:
+  diyornet:
+    name: diyornet
+    driver: bridge
