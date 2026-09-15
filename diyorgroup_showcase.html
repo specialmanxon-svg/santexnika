@@ -1,783 +1,514 @@
 <!DOCTYPE html>
 <html lang="ru" class="dark">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Diyorgroup — Цифровой контур интеграции (Tremor Dashboard)</title>
-  <!-- Tailwind CSS -->
-  <script src="https://www.gstatic.com/antigravity/web/dev/tailwindcss.min.js"></script>
-  <script>
-    tailwind.config = {
-      darkMode: 'class',
-      theme: {
-        extend: {
-          colors: {
-            tremor: {
-              brand: {
-                faint: '#eff6ff',
-                muted: '#bfdbfe',
-                subtle: '#60a5fa',
-                DEFAULT: '#3b82f6',
-                emphasis: '#1d4ed8',
-                inverted: '#ffffff',
-              },
-              background: {
-                muted: '#f9fafb',
-                subtle: '#f3f4f6',
-                DEFAULT: '#ffffff',
-                emphasis: '#374151',
-              },
-              border: {
-                DEFAULT: '#e5e7eb',
-              },
-              ring: {
-                DEFAULT: '#e5e7eb',
-              },
-              content: {
-                subtle: '#9ca3af',
-                DEFAULT: '#6b7280',
-                emphasis: '#374151',
-                strong: '#111827',
-                inverted: '#ffffff',
-              },
-            },
-            'dark-tremor': {
-              brand: {
-                faint: '#0B1229',
-                muted: '#172554',
-                subtle: '#1e40af',
-                DEFAULT: '#3b82f6',
-                emphasis: '#60a5fa',
-                inverted: '#030712',
-              },
-              background: {
-                muted: '#131A2B',
-                subtle: '#1f2937',
-                DEFAULT: '#0f172a',
-                emphasis: '#d1d5db',
-              },
-              border: {
-                DEFAULT: '#1e293b',
-              },
-              ring: {
-                DEFAULT: '#1e293b',
-              },
-              content: {
-                subtle: '#64748b',
-                DEFAULT: '#94a3b8',
-                emphasis: '#e2e8f0',
-                strong: '#f8fafc',
-                inverted: '#000000',
-              },
-            },
-          },
-          boxShadow: {
-            'tremor-input': '0 1px 2px 0 rgb(0 0 0 / 0.05)',
-            'tremor-card': '0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1)',
-            'tremor-dropdown': '0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1)',
-          },
-          borderRadius: {
-            'tremor-small': '0.375rem',
-            'tremor-default': '0.5rem',
-            'tremor-full': '9999px',
-          },
-        },
-      },
-    }
-  </script>
-  <style>
-    .tremor-tab-active {
-      border-bottom: 2px solid #3b82f6;
-      color: #3b82f6 !important;
-      font-weight: 600;
-    }
-  </style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Diyor Group — Система Управления на базе ИИ (ТЗ v2.4)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                    },
+                    colors: {
+                        tremor: {
+                            background: '#0f1115',
+                            card: '#16191f',
+                            border: '#272b33',
+                            brand: '#3b82f6',
+                            text: '#e2e8f0',
+                            textMuted: '#94a3b8',
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        body {
+            background-color: #0f1115;
+            color: #e2e8f0;
+        }
+        .tab-btn {
+            color: #94a3b8;
+            border-bottom: 2px solid transparent;
+        }
+        .tab-btn.active {
+            color: #3b82f6;
+            border-bottom-color: #3b82f6;
+        }
+        .tab-content {
+            display: none;
+        }
+        .tab-content.active {
+            display: block;
+        }
+        .tremor-card {
+            background-color: #16191f;
+            border: 1px solid #272b33;
+            border-radius: 0.75rem;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+        }
+        .scrollbar-hide::-webkit-scrollbar {
+            display: none;
+        }
+    </style>
 </head>
-<body class="bg-[#0b0f19] text-slate-100 antialiased min-h-screen font-sans selection:bg-blue-500/20 selection:text-blue-400">
+<body class="min-h-screen font-sans p-6">
+    <div class="max-w-7xl mx-auto">
+        <!-- Header -->
+        <header class="mb-8">
+            <h1 class="text-3xl font-bold text-white mb-2">Diyor Group AI Dashboard <span class="text-sm font-normal text-tremor-textMuted bg-gray-800 px-2 py-1 rounded-full ml-2">ТЗ v2.4</span></h1>
+            <p class="text-tremor-textMuted">Мультиагентная экосистема управления продажами, складом и маркетингом</p>
+        </header>
 
-  <!-- Верхняя панель навигации (Tremor Header) -->
-  <nav class="border-b border-slate-800/80 bg-[#0f172a]/90 backdrop-blur sticky top-0 z-40">
-    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-      <div class="flex items-center justify-between h-16">
-        <div class="flex items-center gap-6">
-          <div class="flex items-center gap-3">
-            <div class="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center text-white font-bold text-base shadow-sm ring-1 ring-blue-400/30">
-              D
-            </div>
-            <div>
-              <div class="flex items-center gap-2">
-                <span class="font-bold text-sm text-slate-100 tracking-tight">Diyorgroup</span>
-                <span class="text-xs px-2 py-0.5 rounded-full font-medium bg-emerald-500/10 text-emerald-400 ring-1 ring-inset ring-emerald-500/30">
-                  Продакшн v4.0
-                </span>
-              </div>
-              <p class="text-[11px] text-slate-400">Цифровой интеграционный контур</p>
-            </div>
-          </div>
+        <!-- Tabs Navigation -->
+        <nav class="flex space-x-6 border-b border-tremor-border mb-8 overflow-x-auto scrollbar-hide">
+            <button class="tab-btn active pb-4 text-sm font-medium whitespace-nowrap" onclick="switchTab('tab1', this)">Обзор & 6 ИИ-Агентов</button>
+            <button class="tab-btn pb-4 text-sm font-medium whitespace-nowrap" onclick="switchTab('tab2', this)">Социальная разведка</button>
+            <button class="tab-btn pb-4 text-sm font-medium whitespace-nowrap" onclick="switchTab('tab3', this)">Рассылки Telegram</button>
+            <button class="tab-btn pb-4 text-sm font-medium whitespace-nowrap" onclick="switchTab('tab4', this)">Безопасность & RBAC</button>
+            <button class="tab-btn pb-4 text-sm font-medium whitespace-nowrap" onclick="switchTab('tab5', this)">Резервы & Hard-Lock</button>
+        </nav>
 
-          <div class="hidden md:flex items-center gap-1.5 pl-6 border-l border-slate-800">
-            <span class="text-xs text-slate-400">Кластер:</span>
-            <span class="text-xs font-mono px-2 py-0.5 rounded bg-slate-800/70 text-slate-300 ring-1 ring-slate-700/50">bukhara-node-01</span>
-          </div>
+        <!-- Tab 1: Обзор & 6 ИИ-Агентов -->
+        <div id="tab1" class="tab-content active space-y-6">
+            <!-- KPI Cards -->
+            <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+                <div class="tremor-card p-4">
+                    <p class="text-sm text-tremor-textMuted mb-1">Latency FastAPI</p>
+                    <p class="text-2xl font-semibold text-green-400">&lt;2.1s</p>
+                </div>
+                <div class="tremor-card p-4">
+                    <p class="text-sm text-tremor-textMuted mb-1">Резервы МойСклад</p>
+                    <p class="text-2xl font-semibold text-blue-400">100% Sync</p>
+                </div>
+                <div class="tremor-card p-4">
+                    <p class="text-sm text-tremor-textMuted mb-1">Долги (&gt;60д)</p>
+                    <p class="text-2xl font-semibold text-red-500">Hard-Lock</p>
+                </div>
+                <div class="tremor-card p-4">
+                    <p class="text-sm text-tremor-textMuted mb-1">Точность RAG</p>
+                    <p class="text-2xl font-semibold text-green-400">99.4%</p>
+                </div>
+                <div class="tremor-card p-4">
+                    <p class="text-sm text-tremor-textMuted mb-1">Неликвиды</p>
+                    <p class="text-2xl font-semibold text-yellow-400">+5% бонус</p>
+                </div>
+                <div class="tremor-card p-4">
+                    <p class="text-sm text-tremor-textMuted mb-1">Охват Reels</p>
+                    <p class="text-2xl font-semibold text-blue-400">CTR 4.2%</p>
+                </div>
+            </div>
+
+            <!-- Agents Grid -->
+            <h2 class="text-xl font-semibold text-white mt-8 mb-4">Автономные ИИ-Агенты (6)</h2>
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                <!-- Agent 1 -->
+                <div class="tremor-card p-5">
+                    <div class="flex items-center space-x-3 mb-4">
+                        <div class="bg-blue-900/50 p-2 rounded-lg"><svg class="w-6 h-6 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg></div>
+                        <h3 class="text-lg font-medium text-white">ИИ-Директор по развитию</h3>
+                    </div>
+                    <ul class="text-sm text-tremor-textMuted space-y-2 list-disc pl-5">
+                        <li>Каскадное планирование (Бухара, Ташкент, Алматы, Астана)</li>
+                        <li>Прогноз спроса и трендов</li>
+                        <li>Стратегическая аналитика рынков</li>
+                    </ul>
+                </div>
+                <!-- Agent 2 -->
+                <div class="tremor-card p-5">
+                    <div class="flex items-center space-x-3 mb-4">
+                        <div class="bg-green-900/50 p-2 rounded-lg"><svg class="w-6 h-6 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"></path></svg></div>
+                        <h3 class="text-lg font-medium text-white">Полевой HR-Агент</h3>
+                    </div>
+                    <ul class="text-sm text-tremor-textMuted space-y-2 list-disc pl-5">
+                        <li>W3C GPS валидация (&le;20м)</li>
+                        <li>EXIF анализ фото-отчетов (&le;180с)</li>
+                        <li>Управление табелями Timesheet</li>
+                    </ul>
+                </div>
+                <!-- Agent 3 -->
+                <div class="tremor-card p-5">
+                    <div class="flex items-center space-x-3 mb-4">
+                        <div class="bg-purple-900/50 p-2 rounded-lg"><svg class="w-6 h-6 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 4v16M17 4v16M3 8h4m10 0h4M3 12h18M3 16h4m10 0h4M4 20h16a1 1 0 001-1V5a1 1 0 00-1-1H4a1 1 0 00-1 1v14a1 1 0 001 1z"></path></svg></div>
+                        <h3 class="text-lg font-medium text-white">AI Content & SMM Agent</h3>
+                    </div>
+                    <ul class="text-sm text-tremor-textMuted space-y-2 list-disc pl-5">
+                        <li>Генерация сценариев Reels</li>
+                        <li>Промпты для Vitra, Hansgrohe, Grohe</li>
+                        <li>Анализ вовлеченности аудитории</li>
+                    </ul>
+                </div>
+                <!-- Agent 4 -->
+                <div class="tremor-card p-5">
+                    <div class="flex items-center space-x-3 mb-4">
+                        <div class="bg-yellow-900/50 p-2 rounded-lg"><svg class="w-6 h-6 text-yellow-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z"></path></svg></div>
+                        <h3 class="text-lg font-medium text-white">AI Sales Agent</h3>
+                    </div>
+                    <ul class="text-sm text-tremor-textMuted space-y-2 list-disc pl-5">
+                        <li>RAG поиск МойСклад по атрибутам</li>
+                        <li>Барьер галлюцинаций 99%</li>
+                        <li>Авто-подбор аналогов</li>
+                    </ul>
+                </div>
+                <!-- Agent 5 -->
+                <div class="tremor-card p-5">
+                    <div class="flex items-center space-x-3 mb-4">
+                        <div class="bg-red-900/50 p-2 rounded-lg"><svg class="w-6 h-6 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg></div>
+                        <h3 class="text-lg font-medium text-white">AI CFO Agent</h3>
+                    </div>
+                    <ul class="text-sm text-tremor-textMuted space-y-2 list-disc pl-5">
+                        <li>Сводка P&L и Cash Flow</li>
+                        <li>Hard-lock отгрузок (долг 60+ дней)</li>
+                        <li>Авто-формирование актов сверок</li>
+                    </ul>
+                </div>
+                <!-- Agent 6 -->
+                <div class="tremor-card p-5">
+                    <div class="flex items-center space-x-3 mb-4">
+                        <div class="bg-teal-900/50 p-2 rounded-lg"><svg class="w-6 h-6 text-teal-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"></path></svg></div>
+                        <h3 class="text-lg font-medium text-white">AI Inventory Agent</h3>
+                    </div>
+                    <ul class="text-sm text-tremor-textMuted space-y-2 list-disc pl-5">
+                        <li>ABC/XYZ анализ ассортимента</li>
+                        <li>Трекинг залежалых остатков (&gt;90 дней)</li>
+                        <li>Стимуляция сбыта: бонус +5% менеджеру</li>
+                    </ul>
+                </div>
+            </div>
         </div>
 
-        <div class="flex items-center gap-3">
-          <a href="https://github.com/specialmanxon-svg/santexnika" target="_blank" class="inline-flex items-center gap-2 text-xs font-medium px-3 py-1.5 rounded-lg bg-slate-800/80 hover:bg-slate-800 text-slate-200 border border-slate-700/70 transition shadow-sm">
-            <svg class="w-4 h-4 fill-current text-slate-300" viewBox="0 0 24 24"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/></svg>
-            <span>Репозиторий GitHub</span>
-          </a>
-          <span class="inline-flex items-center text-xs font-mono px-2.5 py-1 rounded-md bg-blue-500/10 text-blue-400 ring-1 ring-inset ring-blue-500/20">
-            FastAPI 3.11+
-          </span>
+        <!-- Tab 2: Социальная разведка -->
+        <div id="tab2" class="tab-content space-y-6">
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <!-- Entity Tracking -->
+                <div class="tremor-card p-6">
+                    <h3 class="text-lg font-semibold text-white mb-4">Entity Tracking Симулятор</h3>
+                    <p class="text-sm text-tremor-textMuted mb-4">Обнаружение дизайнеров в подписках конкурентов или партнеров.</p>
+                    <div class="bg-black/50 border border-tremor-border rounded-lg p-4 font-mono text-sm mb-4 h-48 overflow-y-auto" id="entity-log">
+                        <span class="text-green-400">> Инициализация сканера...</span><br>
+                    </div>
+                    <button class="bg-tremor-brand hover:bg-blue-600 text-white px-4 py-2 rounded-md text-sm transition" onclick="runEntitySimulation()">Запустить скан @feruz_latipov</button>
+                </div>
+
+                <!-- Stories Intent Scanner -->
+                <div class="tremor-card p-6">
+                    <h3 class="text-lg font-semibold text-white mb-4">Stories Intent Scanner</h3>
+                    <p class="text-sm text-tremor-textMuted mb-4">Поиск намерений (Intent) по ключевым словам в Stories (OCR/Whisper).</p>
+                    <div class="space-y-4">
+                        <div class="flex items-center space-x-2">
+                            <span class="bg-gray-800 text-xs px-2 py-1 rounded">"ремонт"</span>
+                            <span class="bg-gray-800 text-xs px-2 py-1 rounded">"смеситель"</span>
+                            <span class="bg-gray-800 text-xs px-2 py-1 rounded">"инсталляция"</span>
+                        </div>
+                        <div class="border border-tremor-border rounded-lg p-4 bg-tremor-card hidden" id="stories-result">
+                            <div class="flex justify-between items-start mb-2">
+                                <div>
+                                    <p class="text-sm font-medium text-white">@tashkent_build_2026</p>
+                                    <p class="text-xs text-tremor-textMuted">Обнаружено совпадение: "нужна инсталляция для..."</p>
+                                </div>
+                                <span class="bg-green-900/50 text-green-400 text-xs px-2 py-1 rounded-full">Lead: Warm</span>
+                            </div>
+                            <button class="w-full mt-3 bg-gray-800 hover:bg-gray-700 text-sm py-1.5 rounded transition">Создать задачу в CRM</button>
+                        </div>
+                        <button class="w-full border border-tremor-brand text-tremor-brand hover:bg-tremor-brand/10 px-4 py-2 rounded-md text-sm transition" onclick="document.getElementById('stories-result').classList.remove('hidden')">Сканировать (Симуляция)</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Plumber Radar -->
+            <div class="tremor-card p-6 mt-6">
+                <h3 class="text-lg font-semibold text-white mb-4">Plumber Radar (Мастера)</h3>
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left text-sm text-tremor-textMuted">
+                        <thead class="text-xs uppercase bg-black/20 border-b border-tremor-border">
+                            <tr>
+                                <th class="px-4 py-3">Имя мастера (Бухара)</th>
+                                <th class="px-4 py-3">Квалификация</th>
+                                <th class="px-4 py-3">Проектов</th>
+                                <th class="px-4 py-3">Действие</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr class="border-b border-tremor-border">
+                                <td class="px-4 py-3 font-medium text-white">Уктам Ахмедов</td>
+                                <td class="px-4 py-3"><span class="bg-blue-900/50 text-blue-400 px-2 py-1 rounded text-xs">Grohe Preferred</span></td>
+                                <td class="px-4 py-3">142</td>
+                                <td class="px-4 py-3"><button class="text-tremor-brand hover:underline" onclick="alert('КП для Уктама сгенерировано!')">Ген. КП</button></td>
+                            </tr>
+                            <tr class="border-b border-tremor-border">
+                                <td class="px-4 py-3 font-medium text-white">Рустам Каримов</td>
+                                <td class="px-4 py-3"><span class="bg-teal-900/50 text-teal-400 px-2 py-1 rounded text-xs">Geberit Certified</span></td>
+                                <td class="px-4 py-3">89</td>
+                                <td class="px-4 py-3"><button class="text-tremor-brand hover:underline" onclick="alert('КП для Рустама сгенерировано!')">Ген. КП</button></td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
         </div>
-      </div>
+
+        <!-- Tab 3: Рассылки Telegram -->
+        <div id="tab3" class="tab-content space-y-6">
+            <div class="tremor-card p-6 max-w-3xl mx-auto">
+                <h3 class="text-lg font-semibold text-white mb-6">Double Check Simulator: Рассылки Telegram</h3>
+                
+                <!-- Stepper -->
+                <div class="space-y-8">
+                    <!-- Step 1 -->
+                    <div>
+                        <h4 class="text-sm font-medium text-white mb-3">Шаг 1: Сегментация и Текст</h4>
+                        <select id="msg-segment" class="w-full bg-black/50 border border-tremor-border rounded-md px-3 py-2 text-sm text-white mb-3 focus:outline-none focus:border-tremor-brand">
+                            <option value="debtors">Дебиторы (>60 дней) + Авто-Акт Сверки</option>
+                            <option value="leads">Лиды (прогрев)</option>
+                            <option value="creditors">Кредиторы (графики оплат фабрикам)</option>
+                        </select>
+                        <textarea id="msg-text" class="w-full bg-black/50 border border-tremor-border rounded-md px-3 py-2 text-sm text-white h-24 focus:outline-none focus:border-tremor-brand" placeholder="Введите текст сообщения..."></textarea>
+                        
+                        <div class="mt-3">
+                            <label class="text-xs text-tremor-textMuted mb-1 block">Тон сообщения (Эскалация):</label>
+                            <input type="range" min="1" max="3" value="1" class="w-full accent-tremor-brand" id="tone-slider" onchange="updateTone()">
+                            <div class="flex justify-between text-xs text-tremor-textMuted mt-1">
+                                <span>Вежливый</span>
+                                <span>Настойчивый</span>
+                                <span class="text-red-400">Приостановка отгрузок!</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Step 2 & 3 -->
+                    <div class="border-t border-tremor-border pt-6">
+                        <h4 class="text-sm font-medium text-white mb-3">Шаг 2 & 3: Preview и Double Check</h4>
+                        <div class="bg-gray-800/50 border border-gray-700 rounded-md p-4 mb-4 relative">
+                            <div class="flex items-center space-x-3 mb-2">
+                                <div class="w-8 h-8 bg-blue-500 rounded-full flex items-center justify-center text-xs font-bold text-white">AI</div>
+                                <span class="text-sm font-medium text-white">CFO Agent (Предпросмотр)</span>
+                            </div>
+                            <p class="text-sm text-gray-300 mb-3" id="preview-text">Уважаемый партнер, направляем акт сверки...</p>
+                            <div class="bg-black/40 border border-tremor-border rounded p-3 flex items-center space-x-3">
+                                <svg class="w-6 h-6 text-red-400" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4zm2 6a1 1 0 011-1h6a1 1 0 110 2H7a1 1 0 01-1-1zm1 3a1 1 0 100 2h6a1 1 0 100-2H7z" clip-rule="evenodd"></path></svg>
+                                <div>
+                                    <p class="text-xs text-white">Акт_Сверки_МойСклад.pdf</p>
+                                    <p class="text-[10px] text-tremor-textMuted">Сгенерировано автоматически</p>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="flex items-center space-x-2">
+                            <input type="checkbox" id="double-check" class="rounded bg-black border-tremor-border text-tremor-brand focus:ring-tremor-brand h-4 w-4">
+                            <label for="double-check" class="text-sm text-white">Подтверждаю отправку по сегменту (Double Check)</label>
+                        </div>
+                    </div>
+
+                    <!-- Step 4 -->
+                    <button class="w-full bg-tremor-brand hover:bg-blue-600 text-white font-medium py-2 rounded-md transition disabled:opacity-50 disabled:cursor-not-allowed" id="send-btn" disabled onclick="alert('Рассылка успешно инициирована в /send_message')">Утвердить и Отправить</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Tab 4: Безопасность & RBAC -->
+        <div id="tab4" class="tab-content space-y-6">
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <!-- RBAC Matrix -->
+                <div class="lg:col-span-2 tremor-card p-6">
+                    <h3 class="text-lg font-semibold text-white mb-4">Матрица Доступа (RBAC)</h3>
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left text-sm">
+                            <thead class="text-xs uppercase text-tremor-textMuted border-b border-tremor-border">
+                                <tr>
+                                    <th class="px-4 py-3">Модуль</th>
+                                    <th class="px-4 py-3 text-center">Продажи</th>
+                                    <th class="px-4 py-3 text-center">Склад</th>
+                                    <th class="px-4 py-3 text-center">Финансы</th>
+                                    <th class="px-4 py-3 text-center">Владелец</th>
+                                </tr>
+                            </thead>
+                            <tbody class="text-gray-300">
+                                <tr class="border-b border-tremor-border">
+                                    <td class="px-4 py-3">Резервы (МойСклад)</td>
+                                    <td class="px-4 py-3 text-center text-green-400">R/W</td>
+                                    <td class="px-4 py-3 text-center text-green-400">R/W</td>
+                                    <td class="px-4 py-3 text-center text-tremor-textMuted">R</td>
+                                    <td class="px-4 py-3 text-center text-green-400">Admin</td>
+                                </tr>
+                                <tr class="border-b border-tremor-border">
+                                    <td class="px-4 py-3">Акты Сверок & P&L</td>
+                                    <td class="px-4 py-3 text-center text-tremor-textMuted">Deny</td>
+                                    <td class="px-4 py-3 text-center text-tremor-textMuted">Deny</td>
+                                    <td class="px-4 py-3 text-center text-green-400">R/W</td>
+                                    <td class="px-4 py-3 text-center text-green-400">Admin</td>
+                                </tr>
+                                <tr class="border-b border-tremor-border">
+                                    <td class="px-4 py-3">Снятие Hard-Lock</td>
+                                    <td class="px-4 py-3 text-center text-tremor-textMuted">Deny</td>
+                                    <td class="px-4 py-3 text-center text-tremor-textMuted">Deny</td>
+                                    <td class="px-4 py-3 text-center text-yellow-400">Req</td>
+                                    <td class="px-4 py-3 text-center text-red-500">Approve</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Export & Audit -->
+                <div class="space-y-6">
+                    <div class="tremor-card p-6">
+                        <h3 class="text-md font-semibold text-white mb-4">Data Portability</h3>
+                        <p class="text-xs text-tremor-textMuted mb-4">Выгрузка базы 256-bit AES.</p>
+                        <div class="space-y-2">
+                            <button class="w-full bg-black border border-tremor-border hover:bg-gray-800 text-sm py-2 rounded transition">Экспорт JSON</button>
+                            <button class="w-full bg-black border border-tremor-border hover:bg-gray-800 text-sm py-2 rounded transition">Экспорт CSV</button>
+                            <button class="w-full bg-green-900/40 border border-green-800 text-green-400 hover:bg-green-900/60 text-sm py-2 rounded transition">Экспорт Excel (XLSX)</button>
+                        </div>
+                    </div>
+                    <div class="tremor-card p-4">
+                        <h3 class="text-md font-semibold text-white mb-2">Audit Log</h3>
+                        <div class="bg-black/50 p-2 rounded text-xs font-mono text-gray-400 h-24 overflow-y-auto">
+                            [14:02:11] User: admin - Export JSON<br>
+                            [14:05:32] Sys: AES-256 Key Rotated<br>
+                            [14:10:01] User: sales_2 - Auth Success<br>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Tab 5: Резервы & Hard-Lock -->
+        <div id="tab5" class="tab-content space-y-6">
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <!-- Sync Simulator -->
+                <div class="tremor-card p-6">
+                    <h3 class="text-lg font-semibold text-white mb-4">Битрикс24 ➔ МойСклад (&lt;3 сек)</h3>
+                    <p class="text-sm text-tremor-textMuted mb-4">Симуляция вебхука смены стадии сделки на "Резерв".</p>
+                    
+                    <div class="flex items-center justify-between bg-black/40 p-4 rounded-lg border border-tremor-border mb-4">
+                        <div class="text-center">
+                            <span class="block text-xs text-tremor-textMuted mb-1">Битрикс24 (Сделка #4992)</span>
+                            <span class="bg-blue-900/50 text-blue-400 px-2 py-1 rounded text-xs">Стадия: Переговоры</span>
+                        </div>
+                        <svg class="w-6 h-6 text-gray-600 mx-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3"></path></svg>
+                        <div class="text-center">
+                            <span class="block text-xs text-tremor-textMuted mb-1">МойСклад (Заказ #881)</span>
+                            <span class="bg-gray-800 text-gray-400 px-2 py-1 rounded text-xs" id="ms-status">Свободно</span>
+                        </div>
+                    </div>
+
+                    <button class="w-full bg-tremor-brand hover:bg-blue-600 text-white font-medium py-2 rounded-md transition mb-4" onclick="runSyncSimulation()">Сменить стадию на "Бронь"</button>
+                    
+                    <div class="bg-black p-3 rounded text-xs font-mono text-gray-400 h-28 overflow-y-auto" id="sync-terminal">
+                        > Ожидание вебхука...<br>
+                    </div>
+                </div>
+
+                <!-- Hard-Lock Override -->
+                <div class="tremor-card p-6 border-red-900/50 border-2 shadow-[0_0_15px_rgba(220,38,38,0.15)]">
+                    <div class="flex items-center space-x-3 mb-4">
+                        <div class="bg-red-900/50 p-2 rounded-full"><svg class="w-6 h-6 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path></svg></div>
+                        <h3 class="text-lg font-semibold text-white">CEO Emergency Override</h3>
+                    </div>
+                    <p class="text-sm text-gray-300 mb-4">Клиент <span class="font-bold">OOO STROY-INVEST</span> заблокирован CFO Агентом (долг 12.5 млн сум, &gt;68 дней). Отгрузки остановлены (Hard-Lock).</p>
+                    
+                    <div class="bg-red-950/30 border border-red-900/50 rounded-lg p-4 mb-4">
+                        <label class="block text-xs text-red-400 mb-2">Введите OTP-код владельца для принудительной отгрузки:</label>
+                        <div class="flex space-x-2">
+                            <input type="text" class="w-full bg-black border border-red-900 rounded px-3 py-2 text-white text-center tracking-[0.5em] font-mono focus:outline-none focus:border-red-500" placeholder="0 0 0 0 0 0" maxlength="6" id="otp-input">
+                            <button class="bg-red-600 hover:bg-red-700 text-white px-4 rounded transition text-sm whitespace-nowrap" onclick="unlockClient()">Разблокировать</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
     </div>
-  </nav>
 
-  <!-- Tremor TabNavigation (Навигация по вкладкам) -->
-  <div class="border-b border-slate-800 bg-[#0f172a]/50">
-    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-      <div class="flex space-x-6 overflow-x-auto text-sm" id="tremor-tabs">
-        <button onclick="switchTab('overview')" id="tab-overview" class="py-3.5 px-1 border-b-2 font-medium tremor-tab-active transition whitespace-nowrap">
-          Обзор и Метрики
-        </button>
-        <button onclick="switchTab('reservation')" id="tab-reservation" class="py-3.5 px-1 border-b-2 border-transparent text-slate-400 hover:text-slate-200 transition whitespace-nowrap">
-          Синхронизация Битрикс24 ↔ МойСклад
-        </button>
-        <button onclick="switchTab('cfo')" id="tab-cfo" class="py-3.5 px-1 border-b-2 border-transparent text-slate-400 hover:text-slate-200 transition whitespace-nowrap">
-          AI CFO и Блокировка долгов
-        </button>
-        <button onclick="switchTab('sales')" id="tab-sales" class="py-3.5 px-1 border-b-2 border-transparent text-slate-400 hover:text-slate-200 transition whitespace-nowrap">
-          AI Sales RAG Валидация
-        </button>
-        <button onclick="switchTab('tma')" id="tab-tma" class="py-3.5 px-1 border-b-2 border-transparent text-slate-400 hover:text-slate-200 transition whitespace-nowrap">
-          Telegram Mini App (Выезды)
-        </button>
-      </div>
-    </div>
-  </div>
-
-  <!-- Основной контейнер -->
-  <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-
-    <!-- ==================== ВКЛАДКА 1: ОБЗОР ==================== -->
-    <div id="content-overview" class="space-y-6">
-      <!-- Сетка KPI карточек Tremor -->
-      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        
-        <!-- Карточка 1 -->
-        <div class="bg-[#131b2e] ring-1 ring-slate-800 rounded-xl p-5 shadow-sm hover:ring-slate-700 transition">
-          <div class="flex items-center justify-between">
-            <span class="text-xs font-medium text-slate-400 uppercase tracking-wider">Задержка FastAPI</span>
-            <span class="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 ring-1 ring-emerald-500/20 font-medium">
-              &lt; 2.1 сек
-            </span>
-          </div>
-          <div class="mt-3">
-            <div class="text-2xl font-bold tracking-tight text-white font-mono">1.84 сек</div>
-            <div class="mt-1 flex items-center gap-1.5 text-xs text-slate-400">
-              <span class="text-emerald-400 font-medium font-mono">&darr; 38%</span> относительно лимита SLA (3.0с)
-            </div>
-          </div>
-          <!-- Индикатор выполнения -->
-          <div class="w-full bg-slate-800 h-1.5 rounded-full mt-4 overflow-hidden">
-            <div class="bg-blue-500 h-full rounded-full" style="width: 61%"></div>
-          </div>
-        </div>
-
-        <!-- Карточка 2 -->
-        <div class="bg-[#131b2e] ring-1 ring-slate-800 rounded-xl p-5 shadow-sm hover:ring-slate-700 transition">
-          <div class="flex items-center justify-between">
-            <span class="text-xs font-medium text-slate-400 uppercase tracking-wider">Резервы в МойСклад</span>
-            <span class="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-400 ring-1 ring-blue-500/20 font-medium">
-              Активно
-            </span>
-          </div>
-          <div class="mt-3">
-            <div class="text-2xl font-bold tracking-tight text-white font-mono">428 150 000</div>
-            <div class="mt-1 flex items-center gap-1.5 text-xs text-slate-400">
-              <span class="text-slate-300 font-mono">UZS</span> в резервах заказов покупателей
-            </div>
-          </div>
-          <div class="w-full bg-slate-800 h-1.5 rounded-full mt-4 overflow-hidden">
-            <div class="bg-emerald-500 h-full rounded-full" style="width: 84%"></div>
-          </div>
-        </div>
-
-        <!-- Карточка 3 -->
-        <div class="bg-[#131b2e] ring-1 ring-slate-800 rounded-xl p-5 shadow-sm hover:ring-slate-700 transition">
-          <div class="flex items-center justify-between">
-            <span class="text-xs font-medium text-slate-400 uppercase tracking-wider">Критические долги (>60 дней)</span>
-            <span class="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-rose-500/10 text-rose-400 ring-1 ring-rose-500/20 font-medium">
-              1 Заблокирован
-            </span>
-          </div>
-          <div class="mt-3">
-            <div class="text-2xl font-bold tracking-tight text-rose-400 font-mono">48.6M UZS</div>
-            <div class="mt-1 flex items-center gap-1.5 text-xs text-slate-400">
-              <span class="text-rose-400 font-medium font-mono">Hard-Lock</span> активен в Битрикс24
-            </div>
-          </div>
-          <div class="w-full bg-slate-800 h-1.5 rounded-full mt-4 overflow-hidden">
-            <div class="bg-rose-500 h-full rounded-full" style="width: 100%"></div>
-          </div>
-        </div>
-
-        <!-- Карточка 4 -->
-        <div class="bg-[#131b2e] ring-1 ring-slate-800 rounded-xl p-5 shadow-sm hover:ring-slate-700 transition">
-          <div class="flex items-center justify-between">
-            <span class="text-xs font-medium text-slate-400 uppercase tracking-wider">Точность AI Sales RAG</span>
-            <span class="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-purple-500/10 text-purple-400 ring-1 ring-purple-500/20 font-medium">
-              Барьер &ge; 99%
-            </span>
-          </div>
-          <div class="mt-3">
-            <div class="text-2xl font-bold tracking-tight text-white font-mono">99.4%</div>
-            <div class="mt-1 flex items-center gap-1.5 text-xs text-slate-400">
-              <span class="text-purple-400 font-medium font-mono">24 статических</span> + база pgvector
-            </div>
-          </div>
-          <div class="w-full bg-slate-800 h-1.5 rounded-full mt-4 overflow-hidden">
-            <div class="bg-purple-500 h-full rounded-full" style="width: 99%"></div>
-          </div>
-        </div>
-
-      </div>
-
-      <!-- Сетка архитектуры и эндпоинтов -->
-      <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        
-        <!-- Левый блок: Архитектура сервисов (2 колонки) -->
-        <div class="lg:col-span-2 bg-[#131b2e] ring-1 ring-slate-800 rounded-xl p-6 shadow-sm">
-          <div class="flex items-center justify-between border-b border-slate-800 pb-4 mb-5">
-            <div>
-              <h3 class="text-base font-semibold text-white">Архитектура системы и Пайплайн</h3>
-              <p class="text-xs text-slate-400 mt-0.5">Высоконагруженные микросервисы, развернутые через Docker Compose</p>
-            </div>
-            <span class="text-xs font-mono text-emerald-400 bg-emerald-500/10 px-2.5 py-1 rounded ring-1 ring-emerald-500/20">
-              Все сервисы работают штатно
-            </span>
-          </div>
-
-          <!-- Шаги пайплайна -->
-          <div class="grid grid-cols-1 sm:grid-cols-4 gap-3 text-center">
+    <script>
+        // Tab switching logic
+        function switchTab(tabId, btnContext) {
+            document.querySelectorAll('.tab-content').forEach(tab => tab.classList.remove('active'));
+            document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
             
-            <div class="bg-slate-900/90 ring-1 ring-slate-800 rounded-lg p-4">
-              <div class="text-xs font-semibold text-slate-300">1. Входящий трафик</div>
-              <div class="text-sm font-bold text-blue-400 mt-1">Meta Ads & TMA</div>
-              <p class="text-[11px] text-slate-400 mt-2">Открытые линии, сделки CRM, W3C GPS EXIF фиксация</p>
-            </div>
+            document.getElementById(tabId).classList.add('active');
+            btnContext.classList.add('active');
+        }
 
-            <div class="bg-slate-900/90 ring-1 ring-slate-800 rounded-lg p-4">
-              <div class="text-xs font-semibold text-slate-300">2. Битрикс24 CRM</div>
-              <div class="text-sm font-bold text-sky-400 mt-1">10 полей UF_*</div>
-              <p class="text-[11px] text-slate-400 mt-2">Воронки B2B/B2C, блокировка долгов, % дизайнера</p>
-            </div>
+        // Tab 2: Entity Simulation
+        function runEntitySimulation() {
+            const log = document.getElementById('entity-log');
+            log.innerHTML = '<span class="text-green-400">> Инициализация сканера...</span><br>';
+            
+            setTimeout(() => { log.innerHTML += '<span class="text-gray-400">> Fetching @feruz_latipov followers (API Limit safe)...</span><br>'; }, 500);
+            setTimeout(() => { log.innerHTML += '<span class="text-blue-400">> Analyzing ML graph (Bi-directional mapping)...</span><br>'; }, 1200);
+            setTimeout(() => { 
+                log.innerHTML += '<span class="text-yellow-400">> Найдено совпадение: @dizayner_buxara_99 (Design intent detected)</span><br>'; 
+            }, 2000);
+            setTimeout(() => { 
+                log.innerHTML += '<span class="text-green-500 font-bold">> УСПЕХ: Карточка партнера создана в CRM (Attribution: 7%)</span><br>';
+                log.scrollTop = log.scrollHeight;
+            }, 3000);
+        }
 
-            <div class="bg-slate-900/90 ring-1 ring-blue-500/40 rounded-lg p-4 shadow-sm shadow-blue-500/10">
-              <div class="text-xs font-semibold text-blue-400">3. Middleware</div>
-              <div class="text-sm font-bold text-white mt-1">FastAPI & Celery</div>
-              <p class="text-[11px] text-slate-400 mt-2">HMAC, 24ч Redis идемпотентность, DLQ очереди</p>
-            </div>
+        // Tab 3: Double Check Form Logic
+        document.getElementById('double-check').addEventListener('change', function(e) {
+            document.getElementById('send-btn').disabled = !e.target.checked;
+        });
 
-            <div class="bg-slate-900/90 ring-1 ring-slate-800 rounded-lg p-4">
-              <div class="text-xs font-semibold text-slate-300">4. ERP и Ядро ИИ</div>
-              <div class="text-sm font-bold text-emerald-400 mt-1">МойСклад & RAG</div>
-              <p class="text-[11px] text-slate-400 mt-2">JSON API 1.2, pgvector, агенты LangGraph</p>
-            </div>
+        function updateTone() {
+            const val = document.getElementById('tone-slider').value;
+            const preview = document.getElementById('preview-text');
+            if(val == 1) {
+                preview.innerText = "Здравствуйте! Направляем акт сверки за прошлый месяц. Пожалуйста, проверьте прикрепленный файл.";
+                preview.className = "text-sm text-gray-300 mb-3";
+            } else if (val == 2) {
+                preview.innerText = "Добрый день. Напоминаем о наличии просроченной задолженности. Просим срочно подписать акт сверки и произвести оплату.";
+                preview.className = "text-sm text-yellow-400 mb-3";
+            } else {
+                preview.innerText = "ВНИМАНИЕ! Ваш долг превысил 60 дней. Отгрузки ПРИОСТАНОВЛЕНЫ до полного погашения. Акт сверки во вложении.";
+                preview.className = "text-sm text-red-400 mb-3 font-semibold";
+            }
+        }
 
-          </div>
+        // Tab 5: Sync Simulation
+        function runSyncSimulation() {
+            const term = document.getElementById('sync-terminal');
+            const status = document.getElementById('ms-status');
+            
+            term.innerHTML += '<span class="text-blue-400">[200 OK] Webhook received from Bitrix24 (Stage: Бронь)</span><br>';
+            term.scrollTop = term.scrollHeight;
 
-          <!-- Выноска Tremor Callout -->
-          <div class="mt-6 flex items-start gap-3 p-4 rounded-lg bg-blue-950/20 border-l-4 border-blue-500 ring-1 ring-blue-900/30">
-            <span class="text-blue-400 text-lg">ℹ</span>
-            <div class="text-xs">
-              <span class="font-semibold text-blue-300">Гарантия отказоустойчивости корпоративного уровня:</span>
-              <span class="text-slate-300">
-                Любые временные сбои сервисов МойСклад или Битрикс24 обрабатываются с экспоненциальной задержкой (10с, 30с, 90с, 300с, 900с). После 5 неудачных попыток полезная нагрузка безопасно помещается в очередь Redis <code class="text-blue-300 font-mono">dlq:failed_events</code> и отправляется администраторам в Telegram.
-              </span>
-            </div>
-          </div>
-        </div>
+            setTimeout(() => {
+                term.innerHTML += '<span class="text-gray-400">Processing payload... mapping ID 4992 to MS Order 881</span><br>';
+                term.scrollTop = term.scrollHeight;
+            }, 800);
 
-        <!-- Правый блок: Рабочие эндпоинты API -->
-        <div class="bg-[#131b2e] ring-1 ring-slate-800 rounded-xl p-6 shadow-sm">
-          <h3 class="text-base font-semibold text-white mb-1">API Эндпоинты</h3>
-          <p class="text-xs text-slate-400 mb-4">Матрица маршрутизации FastAPI v1</p>
+            setTimeout(() => {
+                term.innerHTML += '<span class="text-yellow-400">Requesting MS API /entity/customerorder/881 (PUT)</span><br>';
+                term.scrollTop = term.scrollHeight;
+            }, 1500);
 
-          <div class="space-y-3 font-mono text-xs">
-            <div class="p-2.5 rounded bg-slate-900/90 ring-1 ring-slate-800">
-              <div class="flex items-center justify-between mb-1">
-                <span class="text-sky-400 font-bold">POST /bitrix/deal-stage-change</span>
-                <span class="text-[10px] px-1.5 py-0.5 rounded bg-sky-500/10 text-sky-400">Хук</span>
-              </div>
-              <p class="font-sans text-[11px] text-slate-400">Триггер авторезервирования в МойСклад</p>
-            </div>
+            setTimeout(() => {
+                term.innerHTML += '<span class="text-green-500 font-bold">Sync Completed in 1.82s (Latency: Fast)</span><br>';
+                term.scrollTop = term.scrollHeight;
+                
+                status.innerText = "В РЕЗЕРВЕ";
+                status.className = "bg-yellow-900/50 text-yellow-400 px-2 py-1 rounded text-xs";
+            }, 2300);
+        }
 
-            <div class="p-2.5 rounded bg-slate-900/90 ring-1 ring-slate-800">
-              <div class="flex items-center justify-between mb-1">
-                <span class="text-emerald-400 font-bold">POST /moysklad/order-paid</span>
-                <span class="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400">Хук</span>
-              </div>
-              <p class="font-sans text-[11px] text-slate-400">Расчет 7% комиссии дизайнера от маржи</p>
-            </div>
-
-            <div class="p-2.5 rounded bg-slate-900/90 ring-1 ring-slate-800">
-              <div class="flex items-center justify-between mb-1">
-                <span class="text-amber-400 font-bold">POST /management/override-lock</span>
-                <span class="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-400">Аутентификация</span>
-              </div>
-              <p class="font-sans text-[11px] text-slate-400">Аварийная разблокировка CEO по TOTP-коду</p>
-            </div>
-
-            <div class="p-2.5 rounded bg-slate-900/90 ring-1 ring-slate-800">
-              <div class="flex items-center justify-between mb-1">
-                <span class="text-purple-400 font-bold">POST /compatibility/check</span>
-                <span class="text-[10px] px-1.5 py-0.5 rounded bg-purple-500/10 text-purple-400">ИИ</span>
-              </div>
-              <p class="font-sans text-[11px] text-slate-400">Двухфакторный RAG-валидатор сантехники</p>
-            </div>
-
-            <div class="p-2.5 rounded bg-slate-900/90 ring-1 ring-slate-800">
-              <div class="flex items-center justify-between mb-1">
-                <span class="text-teal-400 font-bold">POST /visits/checkin</span>
-                <span class="text-[10px] px-1.5 py-0.5 rounded bg-teal-500/10 text-teal-400">TMA</span>
-              </div>
-              <p class="font-sans text-[11px] text-slate-400">Анти-спуфинг GPS и проверка EXIF фото</p>
-            </div>
-          </div>
-        </div>
-
-      </div>
-    </div>
-
-    <!-- ==================== ВКЛАДКА 2: СИМУЛЯТОР РЕЗЕРВИРОВАНИЯ ==================== -->
-    <div id="content-reservation" class="hidden space-y-6">
-      <div class="bg-[#131b2e] ring-1 ring-slate-800 rounded-xl p-6 shadow-sm">
-        <div class="flex flex-col md:flex-row md:items-center justify-between gap-2 border-b border-slate-800 pb-4 mb-6">
-          <div>
-            <h3 class="text-base font-semibold text-white">Сценарий 4.1: Автоматическое резервирование товаров</h3>
-            <p class="text-xs text-slate-400 mt-0.5">Смена стадии сделки в Битрикс24 &rarr; Валидация FastAPI &rarr; Резерв остатков в МойСклад (&lt;3 сек)</p>
-          </div>
-          <span class="text-xs font-mono px-3 py-1 rounded bg-blue-500/10 text-blue-400 ring-1 ring-blue-500/20">
-            Эндпоинт: /api/v1/bitrix/deal-stage-change
-          </span>
-        </div>
-
-        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <!-- Параметры симуляции -->
-          <div class="space-y-4">
-            <div>
-              <label class="block text-xs font-medium text-slate-300 mb-1.5">Стадия сделки в Битрикс24 (Trigger Stage):</label>
-              <select id="sim-stage" class="w-full bg-slate-900 ring-1 ring-slate-700 text-xs rounded-lg p-2.5 text-slate-200 focus:ring-blue-500">
-                <option value="INVOICE_ISSUED">INVOICE_ISSUED (Счет выставлен) — [ТРИГГЕР]</option>
-                <option value="NEW">NEW (Новая)</option>
-                <option value="PREPARATION">PREPARATION (Подготовка)</option>
-              </select>
-            </div>
-
-            <div>
-              <label class="block text-xs font-medium text-slate-300 mb-1.5">Сделка ID и Контрагент:</label>
-              <div class="grid grid-cols-2 gap-2">
-                <input type="text" value="СДЕЛКА #4082" class="bg-slate-900 ring-1 ring-slate-700 text-xs rounded-lg p-2.5 text-slate-200 font-mono" readonly>
-                <input type="text" value="ООО «Buxoro Premium Stroy»" class="bg-slate-900 ring-1 ring-slate-700 text-xs rounded-lg p-2.5 text-slate-200" readonly>
-              </div>
-            </div>
-
-            <div class="p-3.5 rounded-lg bg-slate-900/80 ring-1 ring-slate-800 text-xs space-y-2">
-              <span class="font-semibold text-slate-300 block">Товарные позиции (Deal Products):</span>
-              <div class="flex justify-between items-center text-slate-400 font-mono text-[11px] pb-1 border-b border-slate-800">
-                <span>1. Grohe Rapid SL (38528001)</span>
-                <span class="text-white">10 шт &times; 1 450 000 UZS</span>
-              </div>
-              <div class="flex justify-between items-center text-slate-400 font-mono text-[11px]">
-                <span>2. Geberit Sigma 30 (115.883)</span>
-                <span class="text-white">10 шт &times; 620 000 UZS</span>
-              </div>
-            </div>
-
-            <button onclick="runReservationSim()" class="w-full py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-semibold transition shadow-sm flex items-center justify-center gap-2">
-              <span>⚡</span> Отправить Webhook и симулировать резервирование
-            </button>
-          </div>
-
-          <!-- Журнал выполнения симуляции -->
-          <div class="bg-slate-950 ring-1 ring-slate-800 rounded-xl p-4 font-mono text-xs flex flex-col justify-between">
-            <div>
-              <div class="flex items-center justify-between text-[11px] text-slate-400 border-b border-slate-800 pb-2 mb-3">
-                <span>ЖУРНАЛ ИСПОЛНЕНИЯ В ТЕРМИНАЛЕ</span>
-                <span id="sim-badge" class="px-2 py-0.5 rounded bg-slate-800 text-slate-400">ОЖИДАНИЕ</span>
-              </div>
-              <div id="sim-terminal" class="space-y-1.5 text-slate-400 text-[11px]">
-                <div>$ система готова к приему вебхука из Битрикс24...</div>
-              </div>
-            </div>
-
-            <div id="sim-summary" class="hidden mt-4 pt-3 border-t border-slate-800 text-emerald-400 text-xs font-sans">
-              ✨ Резерв успешно создан! Поле <b>UF_MS_ORDER_ID</b> обновлено в Битрикс24.
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- ==================== ВКЛАДКА 3: AI CFO И ДОЛГИ ==================== -->
-    <div id="content-cfo" class="hidden space-y-6">
-      <div class="bg-[#131b2e] ring-1 ring-slate-800 rounded-xl p-6 shadow-sm">
-        <div class="flex flex-col md:flex-row md:items-center justify-between gap-2 border-b border-slate-800 pb-4 mb-6">
-          <div>
-            <h3 class="text-base font-semibold text-white">AI CFO Agent: Дебиторская задолженность и Hard-Lock</h3>
-            <p class="text-xs text-slate-400 mt-0.5">Celery Beat (Ежедневно в 06:00) &rarr; Корзины старения МойСклад &rarr; Автоблокировка в CRM</p>
-          </div>
-          <span class="text-xs font-mono px-3 py-1 rounded bg-amber-500/10 text-amber-400 ring-1 ring-amber-500/20">
-            Правило: debt_60_plus > 0 &rarr; UF_SHIPMENT_BLOCKED=Y
-          </span>
-        </div>
-
-        <!-- Таблица данных Tremor -->
-        <div class="overflow-x-auto">
-          <table class="w-full text-left text-xs">
-            <thead>
-              <tr class="border-b border-slate-800 text-slate-400">
-                <th class="pb-3 px-3 font-semibold uppercase tracking-wider text-[10px]">Контрагент (Юрлицо)</th>
-                <th class="pb-3 px-3 font-semibold uppercase tracking-wider text-[10px]">0–30 дней</th>
-                <th class="pb-3 px-3 font-semibold uppercase tracking-wider text-[10px]">31–60 дней</th>
-                <th class="pb-3 px-3 font-semibold uppercase tracking-wider text-[10px] text-rose-400 font-bold">60+ дней (Критический)</th>
-                <th class="pb-3 px-3 font-semibold uppercase tracking-wider text-[10px]">Статус отгрузки</th>
-                <th class="pb-3 px-3 font-semibold uppercase tracking-wider text-[10px] text-right">Override руководства</th>
-              </tr>
-            </thead>
-            <tbody class="divide-y divide-slate-800/80">
-              
-              <tr class="hover:bg-slate-900/40 transition">
-                <td class="py-3.5 px-3 font-medium text-slate-200">
-                  ООО «Buxoro Premium Stroy»
-                  <div class="text-[10px] text-slate-500 font-mono">MS-ID: 7a82-419b-c8</div>
-                </td>
-                <td class="py-3.5 px-3 font-mono text-slate-300">12 400 000 UZS</td>
-                <td class="py-3.5 px-3 font-mono text-slate-300">0</td>
-                <td class="py-3.5 px-3 font-mono text-emerald-400 font-bold">0</td>
-                <td class="py-3.5 px-3">
-                  <span class="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium bg-emerald-500/10 text-emerald-400 ring-1 ring-inset ring-emerald-500/20">
-                    Открыта (Разрешена)
-                  </span>
-                </td>
-                <td class="py-3.5 px-3 text-right text-slate-500 text-[11px]">—</td>
-              </tr>
-
-              <tr class="hover:bg-slate-900/40 bg-rose-950/10 transition">
-                <td class="py-3.5 px-3 font-medium text-rose-200">
-                  ООО «Ark Sanoat Qurilish»
-                  <div class="text-[10px] text-rose-400/60 font-mono">MS-ID: 9c14-22df-a1</div>
-                </td>
-                <td class="py-3.5 px-3 font-mono text-slate-300">5 000 000 UZS</td>
-                <td class="py-3.5 px-3 font-mono text-slate-300">14 200 000 UZS</td>
-                <td class="py-3.5 px-3 font-mono text-rose-400 font-bold">48 600 000 UZS</td>
-                <td class="py-3.5 px-3">
-                  <span id="tbl-badge-ark" class="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium bg-rose-500/10 text-rose-400 ring-1 ring-inset ring-rose-500/20">
-                    🔒 HARD-LOCKED (ЗАБЛОКИРОВАН)
-                  </span>
-                </td>
-                <td class="py-3.5 px-3 text-right">
-                  <button onclick="toggleOverrideBox()" id="tbl-btn-ark" class="px-2.5 py-1 bg-amber-600 hover:bg-amber-500 text-white rounded text-[11px] font-medium transition shadow-sm">
-                    OTP Override
-                  </button>
-                </td>
-              </tr>
-
-            </tbody>
-          </table>
-        </div>
-
-        <!-- Панель CEO Override -->
-        <div id="cfo-override-panel" class="hidden mt-6 p-5 rounded-xl bg-slate-900 ring-1 ring-amber-500/30">
-          <div class="flex items-center justify-between mb-3">
-            <span class="text-xs font-semibold text-amber-400 flex items-center gap-1.5">
-              <span>🛡️</span> Аварийная разблокировка отгрузки (/api/v1/management/override-lock)
-            </span>
-            <span class="text-[10px] text-slate-400 font-mono">ТРЕБУЮТСЯ ПРАВА СУПЕРПОЛЬЗОВАТЕЛЯ</span>
-          </div>
-          <p class="text-xs text-slate-300 mb-4">
-            Для разрешения отгрузки контрагенту с критической просрочкой более 60 дней введите 6-значный TOTP-код из Telegram-бота руководства:
-          </p>
-
-          <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <input type="text" id="otp-input" value="849201" maxlength="6" class="bg-slate-950 ring-1 ring-slate-700 text-xs rounded-lg p-2.5 text-center font-mono text-amber-300 font-bold tracking-widest" placeholder="OTP (6 цифр)">
-            <input type="text" id="otp-reason" value="Согласовано с генеральным директором: гарантийное письмо на 1 неделю" class="sm:col-span-2 bg-slate-950 ring-1 ring-slate-700 text-xs rounded-lg p-2.5 text-slate-200" placeholder="Причина...">
-          </div>
-
-          <div class="mt-3 flex justify-end gap-2">
-            <button onclick="toggleOverrideBox()" class="px-3 py-1.5 text-xs text-slate-400 hover:text-white transition">Отмена</button>
-            <button onclick="submitOverride()" class="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold rounded-lg transition shadow-sm">
-              Подтвердить и записать в аудит
-            </button>
-          </div>
-
-          <div id="override-alert" class="hidden mt-3 text-xs text-emerald-400 font-mono"></div>
-        </div>
-
-      </div>
-    </div>
-
-    <!-- ==================== ВКЛАДКА 4: AI SALES RAG ==================== -->
-    <div id="content-sales" class="hidden space-y-6">
-      <div class="bg-[#131b2e] ring-1 ring-slate-800 rounded-xl p-6 shadow-sm">
-        <div class="flex flex-col md:flex-row md:items-center justify-between gap-2 border-b border-slate-800 pb-4 mb-6">
-          <div>
-            <h3 class="text-base font-semibold text-white">AI Sales Agent: Двухфакторная валидация совместимости</h3>
-            <p class="text-xs text-slate-400 mt-0.5">Шаг 1: Детерминированная матрица &rarr; Шаг 2: Векторный RAG pgvector &rarr; Шаг 3: Защитный барьер 99%</p>
-          </div>
-          <span class="text-xs font-mono px-3 py-1 rounded bg-purple-500/10 text-purple-400 ring-1 ring-purple-500/20">
-            Эндпоинт: /api/v1/compatibility/check
-          </span>
-        </div>
-
-        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <div class="space-y-4">
-            <div>
-              <label class="block text-xs font-medium text-slate-300 mb-1.5">Базовый компонент (Primary SKU):</label>
-              <select id="sel-primary" class="w-full bg-slate-900 ring-1 ring-slate-700 text-xs rounded-lg p-2.5 text-slate-200">
-                <option value="GROHE-38528001">GROHE-38528001 (Рама инсталляции Rapid SL)</option>
-                <option value="HANSGROHE-01800180">HANSGROHE-01800180 (Скрытая часть iBox universal)</option>
-                <option value="GEBERIT-111.300">GEBERIT-111.300 (Инсталляция Duofix 112см)</option>
-              </select>
-            </div>
-
-            <div>
-              <label class="block text-xs font-medium text-slate-300 mb-1.5">Совмещаемый элемент (Target SKU):</label>
-              <select id="sel-target" class="w-full bg-slate-900 ring-1 ring-slate-700 text-xs rounded-lg p-2.5 text-slate-200">
-                <option value="GROHE-38505000">GROHE-38505000 (Клавиша смыва Skate Air) — [Матрица]</option>
-                <option value="HANSGROHE-31666000">HANSGROHE-31666000 (Внешняя накладная панель Metropol) — [RAG]</option>
-                <option value="VITRA-740-1780">VITRA-740-1780 (Клавиша Vitra) — [Сторонний бренд / Несовместимо]</option>
-              </select>
-            </div>
-
-            <button onclick="runCompatCheck()" class="w-full py-2.5 bg-purple-600 hover:bg-purple-500 text-white rounded-lg text-xs font-semibold transition shadow-sm flex items-center justify-center gap-2">
-              <span>🔍</span> Запустить проверку совместимости ИИ
-            </button>
-          </div>
-
-          <!-- Результат проверки -->
-          <div id="compat-card" class="bg-slate-950 ring-1 ring-slate-800 rounded-xl p-5 flex flex-col justify-center">
-            <div class="text-center text-slate-500 text-xs">
-              Для запуска проверки выберите компоненты из левой формы и нажмите кнопку
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- ==================== ВКЛАДКА 5: TELEGRAM MINI APP ==================== -->
-    <div id="content-tma" class="hidden space-y-6">
-      <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        
-        <!-- Макет экрана смартфона -->
-        <div class="bg-[#131b2e] ring-1 ring-slate-800 rounded-xl p-6 shadow-sm flex flex-col items-center">
-          <div class="text-xs font-semibold text-sky-400 mb-4 flex items-center gap-2">
-            <span>📱</span> Полевой модуль Telegram Mini App (React + Vite)
-          </div>
-
-          <!-- Корпус телефона -->
-          <div class="w-full max-w-xs rounded-[2rem] bg-[#020617] ring-4 ring-slate-700 p-4 shadow-2xl space-y-3">
-            <div class="flex justify-between items-center text-[10px] text-slate-400 border-b border-slate-800 pb-1 font-mono">
-              <span>15:42</span>
-              <span>Telegram WebApp</span>
-              <span>98% 🔋</span>
-            </div>
-
-            <div class="p-3 bg-slate-900 rounded-lg ring-1 ring-slate-800">
-              <div class="text-xs font-bold text-white">Diyorgroup — Фиксация выезда</div>
-              <div class="text-[11px] text-slate-400">Шеф-монтаж и контроль объектов B2B</div>
-            </div>
-
-            <div class="space-y-2 text-xs">
-              <div>
-                <label class="text-[10px] text-slate-400 block mb-1">Битрикс24 ID Задачи:</label>
-                <input type="number" value="1042" class="w-full bg-slate-900 ring-1 ring-slate-800 p-1.5 rounded text-white text-xs font-mono" readonly>
-              </div>
-
-              <!-- Карточка GPS -->
-              <div class="p-2.5 rounded bg-slate-900/90 ring-1 ring-slate-800 space-y-1">
-                <div class="flex justify-between items-center text-[11px]">
-                  <span class="font-medium text-sky-400">W3C Геолокация</span>
-                  <span class="text-[10px] font-mono text-emerald-400">Точность: 12.4м</span>
-                </div>
-                <div class="text-[10px] font-mono text-slate-400">39.7745° N, 64.4186° E (Бухара)</div>
-                <div class="text-[10px] text-emerald-400 flex items-center gap-1 font-medium">
-                  ✔ Эмуляция/Fake GPS (isMock) не обнаружена
-                </div>
-              </div>
-
-              <!-- Карточка Камеры -->
-              <div class="p-2.5 rounded bg-slate-900/90 ring-1 ring-slate-800 space-y-1">
-                <div class="flex justify-between items-center text-[11px]">
-                  <span class="font-medium text-purple-400">Камера и EXIF</span>
-                  <span class="text-[10px] font-mono text-emerald-400">&Delta;t: 14с (&le;180с)</span>
-                </div>
-                <div class="text-[10px] font-mono text-slate-400">DateTimeOriginal: 2026-09-15 15:42:04</div>
-                <div class="text-[10px] text-emerald-400 flex items-center gap-1 font-medium">
-                  ✔ Галерея заблокирована (Только живое фото)
-                </div>
-              </div>
-            </div>
-
-            <button class="w-full py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-semibold transition shadow">
-              Отправить отчет в CRM
-            </button>
-          </div>
-        </div>
-
-        <!-- Результат в задаче CRM -->
-        <div class="bg-[#131b2e] ring-1 ring-slate-800 rounded-xl p-6 shadow-sm flex flex-col justify-between">
-          <div>
-            <h3 class="text-base font-semibold text-white mb-1">Вывод в задачу CRM</h3>
-            <p class="text-xs text-slate-400 mb-4">Автоматический комментарий в Битрикс24 (BBCode)</p>
-
-            <div class="p-4 rounded-xl bg-slate-950 ring-1 ring-slate-800 font-mono text-xs space-y-2">
-              <div class="text-sky-400 font-bold font-sans">📌 Инженер зафиксирован на объекте (#1042):</div>
-              <div class="text-slate-300">Объект: «Buxoro City, 4-й блок, 12-й этаж — монтаж сантехники»</div>
-              <div class="text-slate-400">Координаты: 39.7745, 64.4186 (Точность: 12.4м)</div>
-              <div class="text-blue-400 underline">[Показать на карте: https://maps.google.com/?q=39.7745,64.4186]</div>
-              <div class="text-emerald-400">Аутентификация: Фото сделано 14 сек назад (Anti-spoofing пройден)</div>
-              <div class="pt-2 text-slate-500 text-[10px]">[Вложение: checkin_1042_live.jpg]</div>
-            </div>
-          </div>
-
-          <div class="mt-6 p-4 rounded-lg bg-blue-950/20 border-l-4 border-blue-500 ring-1 ring-blue-900/30 text-xs text-slate-300">
-            <span class="font-semibold text-blue-300">Защита от анти-спуфинга:</span> Если сотрудник включит фиктивное местоположение на телефоне или попытается загрузить старое фото из галереи, система вернет ошибку <code class="text-blue-300 font-mono">400 Bad Request</code> и комментарий не будет создан.
-          </div>
-        </div>
-
-      </div>
-    </div>
-
-  </main>
-
-  <!-- Интерактивные скрипты -->
-  <script>
-    function switchTab(tabId) {
-      const tabs = ['overview', 'reservation', 'cfo', 'sales', 'tma'];
-      tabs.forEach(t => {
-        document.getElementById('content-' + t).classList.add('hidden');
-        const btn = document.getElementById('tab-' + t);
-        btn.classList.remove('tremor-tab-active');
-        btn.classList.add('border-transparent', 'text-slate-400');
-      });
-      document.getElementById('content-' + tabId).classList.remove('hidden');
-      const activeBtn = document.getElementById('tab-' + tabId);
-      activeBtn.classList.add('tremor-tab-active');
-      activeBtn.classList.remove('border-transparent', 'text-slate-400');
-    }
-
-    function runReservationSim() {
-      const terminal = document.getElementById('sim-terminal');
-      const badge = document.getElementById('sim-badge');
-      const summary = document.getElementById('sim-summary');
-      
-      badge.innerText = 'ОБРАБОТКА';
-      badge.className = 'px-2 py-0.5 rounded bg-blue-500/20 text-blue-400 font-mono text-[10px]';
-      summary.classList.add('hidden');
-
-      terminal.innerHTML = `<div>[0.00с] &rarr; Получен запрос POST /api/v1/bitrix/deal-stage-change</div>`;
-
-      setTimeout(() => {
-        terminal.innerHTML += `<div>[0.18с] &check; Ключ идемпотентности проверен: sha256(event+deal+ts)</div>`;
-      }, 300);
-
-      setTimeout(() => {
-        terminal.innerHTML += `<div>[0.62с] &check; Вызов Битрикс24 crm.deal.productrows.get(id=4082) &rarr; 2 позиции сопоставлены в MDM</div>`;
-      }, 700);
-
-      setTimeout(() => {
-        terminal.innerHTML += `<div>[1.40с] &check; Создан заказ покупателя в МойСклад: UUID 8a42f7c1-9011 (Статус: В резерве)</div>`;
-      }, 1200);
-
-      setTimeout(() => {
-        terminal.innerHTML += `<div class="text-emerald-400 font-bold">[1.92с] &check; Битрикс24 crm.deal.update(UF_MS_ORDER_ID) успешно завершен за 1.92с (&lt;3с)</div>`;
-        badge.innerText = 'УСПЕШНО';
-        badge.className = 'px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-400 font-mono text-[10px]';
-        summary.classList.remove('hidden');
-      }, 1600);
-    }
-
-    function toggleOverrideBox() {
-      document.getElementById('cfo-override-panel').classList.toggle('hidden');
-    }
-
-    function submitOverride() {
-      const alert = document.getElementById('override-alert');
-      const badge = document.getElementById('tbl-badge-ark');
-      const btn = document.getElementById('tbl-btn-ark');
-
-      alert.classList.remove('hidden');
-      alert.innerHTML = `&check; [200 OK] Разблокировка CEO подтверждена! В Битрикс24 выставлено UF_OVERRIDE_ACTIVE=Y. AuditEvent сохранен (ID: ae82-90f1). Отгрузка разрешена.`;
-      
-      badge.innerText = '🔓 ОТКРЫТА (OVERRIDE)';
-      badge.className = 'inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium bg-amber-500/10 text-amber-400 ring-1 ring-inset ring-amber-500/20';
-      
-      btn.disabled = true;
-      btn.innerText = 'Разрешено';
-      btn.className = 'px-2.5 py-1 bg-slate-800 text-slate-500 rounded text-[11px] font-medium cursor-not-allowed';
-    }
-
-    function runCompatCheck() {
-      const p = document.getElementById('sel-primary').value;
-      const t = document.getElementById('sel-target').value;
-      const card = document.getElementById('compat-card');
-
-      if (p === 'GROHE-38528001' && t === 'GROHE-38505000') {
-        card.innerHTML = `
-          <div class="space-y-3">
-            <div class="flex items-center justify-between">
-              <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded bg-emerald-500/10 text-emerald-400 ring-1 ring-emerald-500/20 text-xs font-bold">
-                ✔ APPROVED (100% УВЕРЕННОСТЬ)
-              </span>
-              <span class="text-xs font-mono text-slate-400">Шаг 1: Матрица</span>
-            </div>
-            <p class="text-xs text-slate-300">
-              <b>Причина:</b> MATCH_IN_STATIC_MATRIX. Рама Grohe Rapid SL детерминистически полностью совместима с клавишей Skate Air.
-            </p>
-            <div class="p-2.5 rounded bg-slate-900 ring-1 ring-slate-800 text-xs font-mono text-emerald-400">
-              Битрикс24: UF_COMPAT_STATUS = "COMPATIBLE"
-            </div>
-          </div>
-        `;
-      } else if (p === 'HANSGROHE-01800180' && t === 'HANSGROHE-31666000') {
-        card.innerHTML = `
-          <div class="space-y-3">
-            <div class="flex items-center justify-between">
-              <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded bg-emerald-500/10 text-emerald-400 ring-1 ring-emerald-500/20 text-xs font-bold">
-                ✔ APPROVED (99.4% УВЕРЕННОСТЬ)
-              </span>
-              <span class="text-xs font-mono text-slate-400">Шаг 2: pgvector RAG</span>
-            </div>
-            <p class="text-xs text-slate-300">
-              <b>Причина:</b> RAG_HIGH_CONFIDENCE. Скрытая часть iBox universal и внешняя накладная панель Metropol подтверждены моделью LLM по чертежам и спецификациям (&ge;99%).
-            </p>
-            <div class="p-2.5 rounded bg-slate-900 ring-1 ring-slate-800 text-xs font-mono text-emerald-400">
-              Битрикс24: UF_COMPAT_STATUS = "COMPATIBLE"
-            </div>
-          </div>
-        `;
-      } else {
-        card.innerHTML = `
-          <div class="space-y-3">
-            <div class="flex items-center justify-between">
-              <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded bg-amber-500/10 text-amber-400 ring-1 ring-amber-500/20 text-xs font-bold">
-                ⚠️ ESCALATED (УВЕРЕННОСТЬ &lt; 99%)
-              </span>
-              <span class="text-xs font-mono text-slate-400">Шаг 3: Защитный барьер</span>
-            </div>
-            <p class="text-xs text-slate-300">
-              <b>Причина:</b> Компоненты разных брендов (Grohe/Geberit и Vitra) несовместимы без специализированных адаптеров. Требуется подтверждение инженера Diyorgroup по монтажным схемам.
-            </p>
-            <div class="p-2.5 rounded bg-slate-900 ring-1 ring-slate-800 text-xs font-mono text-amber-400">
-              Битрикс24: UF_COMPAT_STATUS = "HUMAN_REVIEW_REQ"
-            </div>
-          </div>
-        `;
-      }
-    }
-  </script>
+        // Tab 5: Unlock Client
+        function unlockClient() {
+            const otp = document.getElementById('otp-input').value;
+            if(otp.length >= 4) {
+                alert('OTP Подтвержден. Клиент разблокирован на 24 часа. Запись в Audit Log создана.');
+                document.getElementById('otp-input').value = '';
+            } else {
+                alert('Неверный формат OTP кода.');
+            }
+        }
+    </script>
 </body>
 </html>
