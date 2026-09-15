@@ -50,12 +50,18 @@ async def lifespan(app: FastAPI):
     # Create tables if they don't exist (development only)
     # In production, use Alembic migrations
     if settings.app_debug:
-        async with engine.begin() as conn:
-            await conn.run_sync(Base.metadata.create_all)
-        logger.info("database_tables_created")
+        try:
+            async with engine.begin() as conn:
+                await conn.run_sync(Base.metadata.create_all)
+            logger.info("database_tables_created")
+        except Exception as e:
+            logger.warning("database_init_skipped", error=str(e), hint="Running in local mode without Docker DB")
     yield
     logger.info("application_shutting_down")
-    await engine.dispose()
+    try:
+        await engine.dispose()
+    except Exception:
+        pass
 
 
 app = FastAPI(
@@ -63,8 +69,9 @@ app = FastAPI(
     description="Битрикс24 ↔ FastAPI Middleware ↔ МойСклад ↔ ИИ-Агенты",
     version="1.0.0",
     lifespan=lifespan,
-    docs_url="/docs" if settings.app_debug else None,
-    redoc_url="/redoc" if settings.app_debug else None,
+    docs_url="/docs",
+    redoc_url="/redoc",
+    openapi_url="/openapi.json",
 )
 
 # CORS middleware
