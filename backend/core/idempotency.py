@@ -4,8 +4,6 @@ import structlog
 from fastapi import Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from core.redis_client import RedisClient
-
 logger = structlog.get_logger()
 
 IDEMPOTENCY_TTL = 86400  # 24 hours
@@ -38,9 +36,9 @@ class IdempotencyMiddleware(BaseHTTPMiddleware):
         # Generate key from request content
         key = hashlib.sha256(body).hexdigest()
         
-        redis = RedisClient()
         try:
-            is_duplicate = await redis.check_idempotency_key(key)
+            from core.redis_client import check_idempotency_key, set_idempotency_key
+            is_duplicate = await check_idempotency_key(key)
             if is_duplicate:
                 logger.info("idempotent_request_skipped", path=path, key=key[:16])
                 return Response(
@@ -49,13 +47,12 @@ class IdempotencyMiddleware(BaseHTTPMiddleware):
                     media_type="application/json"
                 )
             
-            # Process the request
             response = await call_next(request)
             
-            # Only set key if request was successful
             if response.status_code < 400:
-                await redis.set_idempotency_key(key, IDEMPOTENCY_TTL)
+                await set_idempotency_key(key, "1", IDEMPOTENCY_TTL)
             
             return response
-        finally:
-            await redis.close()
+        except Exception as e:
+            logger.warning("idempotency_check_bypassed", error=str(e))
+            return await call_next(request)

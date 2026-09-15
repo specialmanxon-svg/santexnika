@@ -16,7 +16,7 @@ rbac_service = RBACService()
 @router.get("/growth-forecast")
 async def get_growth_forecast(city: str = Query("Бухара", enum=["Бухара", "Ташкент", "Алматы", "Астана"])):
     """Прогнозирование регионального спроса ИИ-Директором по развитию."""
-    return growth_agent.forecast_regional_demand(city)
+    return await growth_agent.forecast_regional_demand(city)
 
 
 @router.get("/inventory-liquidity")
@@ -32,12 +32,21 @@ async def export_data(
     role: str = Query("owner", description="Роль пользователя в RBAC")
 ):
     """Выгрузка данных по запросу владельца (Data Portability & Backup)."""
-    if not rbac_service.can_export_data(role):
+    if role != "owner":
         raise HTTPException(status_code=403, detail="Экспорт разрешен только владельцу (Owner)")
     
-    file_bytes, media_type, filename = rbac_service.export_dataset(dataset, format_type)
+    file_bytes = await rbac_service.export_data(format_type, dataset, role)
+    
+    media_map = {
+        "json": "application/json",
+        "csv": "text/csv",
+        "excel": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    }
+    ext_map = {"json": "json", "csv": "csv", "excel": "xlsx"}
+    filename = f"{dataset}_{format_type}.{ext_map.get(format_type, 'dat')}"
+    
     return Response(
         content=file_bytes,
-        media_type=media_type,
+        media_type=media_map.get(format_type, "application/octet-stream"),
         headers={"Content-Disposition": f"attachment; filename={filename}"}
     )

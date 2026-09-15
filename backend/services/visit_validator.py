@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from PIL import Image
 from PIL.ExifTags import TAGS
 
-from schemas.field_visit import GeoLocation, FieldVisitCheckIn, FieldVisitResponse
+from schemas.visits import GeoLocation, FieldVisitCheckIn, FieldVisitResponse
 from services.bitrix_client import BitrixClient
 
 logger = structlog.get_logger()

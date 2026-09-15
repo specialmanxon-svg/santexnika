@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 import structlog
 
 from core.database import get_db
-from schemas.field_visit import FieldVisitCheckIn, FieldVisitResponse, GeoLocation
+from schemas.visits import FieldVisitCheckIn, FieldVisitResponse, GeoLocation
 from services.visit_validator import visit_validator
 
 logger = structlog.get_logger()

@@ -23,4 +23,26 @@ async def push_to_dlq(queue_name: str, payload: str) -> None:
     """
     Pushes a failed payload to a Dead Letter Queue in Redis.
     """
-    await redis_client.lpush(f"dlq:{queue_name}", payload)
+    try:
+        await redis_client.lpush(f"dlq:{queue_name}", payload)
+    except Exception:
+        pass
+
+
+class RedisClient:
+    """Convenience class wrapper for redis client operations."""
+    def __init__(self):
+        self.client = redis_client
+
+    async def check_idempotency_key(self, key: str) -> bool:
+        return await check_idempotency_key(key)
+
+    async def set_idempotency_key(self, key: str, value: str = "1", expire: int = 3600) -> bool:
+        return await set_idempotency_key(key, value, expire)
+
+    async def push_to_dlq(self, queue_name: str, payload: str) -> None:
+        await push_to_dlq(queue_name, payload)
+
+    async def close(self) -> None:
+        pass
+

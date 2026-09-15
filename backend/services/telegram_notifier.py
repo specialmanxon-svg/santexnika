@@ -6,10 +6,10 @@ logger = structlog.get_logger(__name__)
 
 class TelegramNotifier:
     def __init__(self):
-        self.bot_token = settings.TELEGRAM_BOT_TOKEN
+        self.bot_token = getattr(settings, "telegram_bot_token", getattr(settings, "TELEGRAM_BOT_TOKEN", ""))
         self.api_url = f"https://api.telegram.org/bot{self.bot_token}/sendMessage"
-        self.alert_chat_id = settings.TELEGRAM_ALERT_CHAT_ID
-        self.ceo_chat_id = settings.TELEGRAM_CEO_CHAT_ID
+        self.alert_chat_id = getattr(settings, "telegram_alert_chat_id", getattr(settings, "TELEGRAM_ALERT_CHAT_ID", ""))
+        self.ceo_chat_id = getattr(settings, "telegram_ceo_chat_id", getattr(settings, "TELEGRAM_CEO_CHAT_ID", ""))
 
     async def send_message(self, chat_id: str, text: str, parse_mode: str = 'HTML') -> bool:
         if not self.bot_token or not chat_id:

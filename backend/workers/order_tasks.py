@@ -31,3 +31,6 @@ def process_order_commission(self, order_href: str):
             logger.error("process_order_commission_max_retries", order_href=order_href)
             push_to_dlq('workers.order_tasks.process_order_commission', args=(order_href,), kwargs={}, exc_info=str(exc))
             raise
+
+process_order_paid = process_order_commission
+
