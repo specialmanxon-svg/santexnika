@@ -1,5 +1,9 @@
+import os
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import Field
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DEFAULT_DB_PATH = os.path.join(BASE_DIR, "diyorgroup.db").replace("\\", "/")
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
@@ -9,8 +13,16 @@ class Settings(BaseSettings):
     )
     
     # Database
-    database_url: str = Field(default="sqlite+aiosqlite:///./diyorgroup.db", description="Async database connection string")
-    database_url_sync: str = Field(default="sqlite:///./diyorgroup.db", description="Sync database connection string")
+    database_url: str = Field(default=f"sqlite+aiosqlite:///{DEFAULT_DB_PATH}", description="Async database connection string")
+    database_url_sync: str = Field(default=f"sqlite:///{DEFAULT_DB_PATH}", description="Sync database connection string")
+
+    def model_post_init(self, __context):
+        if self.database_url.startswith("sqlite+aiosqlite:///.") or self.database_url == "sqlite+aiosqlite:///diyorgroup.db":
+            self.database_url = f"sqlite+aiosqlite:///{DEFAULT_DB_PATH}"
+        if self.database_url_sync.startswith("sqlite:///.") or self.database_url_sync == "sqlite:///diyorgroup.db":
+            self.database_url_sync = f"sqlite:///{DEFAULT_DB_PATH}"
+        if not self.openai_api_key or not self.openai_api_key.strip():
+            self.openai_api_key = "sk-placeholder-diyor-ai-ecosystem-2026"
     
     # Redis
     redis_url: str = Field(default="redis://127.0.0.1:6379/0")
@@ -24,9 +36,11 @@ class Settings(BaseSettings):
     
     # MoySklad
     moysklad_api_url: str = Field(default="https://api.moysklad.ru/api/remap/1.2")
-    moysklad_token: str = Field(default="test_moysklad_bearer_token")
-    moysklad_organization_id: str = Field(default="test_org_uuid")
-    moysklad_reserve_state_id: str = Field(default="test_reserve_state_uuid")
+    moysklad_token: str = Field(default="")
+    moysklad_login: str = Field(default="")
+    moysklad_password: str = Field(default="")
+    moysklad_organization_id: str = Field(default="")
+    moysklad_reserve_state_id: str = Field(default="")
     
     # OpenAI
     openai_api_key: str = Field(default="sk-test-openai-key")
