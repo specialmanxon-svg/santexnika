@@ -20,7 +20,7 @@ AsyncSessionLocal = async_sessionmaker(
 )
 async_session_factory = AsyncSessionLocal
 
-Base = declarative_base()
+from models.base import Base
 
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
     async with AsyncSessionLocal() as session:

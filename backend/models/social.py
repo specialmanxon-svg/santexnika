@@ -1,9 +1,8 @@
 """SQLAlchemy models for Social Intelligence and Partner Attribution."""
 from datetime import datetime
 from uuid import UUID, uuid4
-from sqlalchemy import String, Text, Boolean, Integer, Float, DateTime
+from sqlalchemy import String, Text, Boolean, Integer, Float, DateTime, JSON
 from sqlalchemy.orm import Mapped, mapped_column
-from sqlalchemy.dialects.postgresql import JSONB
 from models.base import Base
 
 
@@ -33,7 +32,7 @@ class SocialStoryLead(Base):
     author_username: Mapped[str] = mapped_column(String(128), index=True)
     story_url: Mapped[str] = mapped_column(String(512))
     screenshot_path: Mapped[str | None] = mapped_column(String(512), nullable=True)
-    detected_keywords: Mapped[list] = mapped_column(JSONB, default=list)
+    detected_keywords: Mapped[list] = mapped_column(JSON, default=list)
     lead_intent_score: Mapped[float] = mapped_column(Float, default=0.85)
     crm_task_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     status: Mapped[str] = mapped_column(String(64), default="PENDING_WARMUP")
@@ -50,7 +49,7 @@ class PlumberProfile(Base):
     city: Mapped[str] = mapped_column(String(64), default="Бухара")
     brand_specialization: Mapped[str] = mapped_column(String(128))
     tier_level: Mapped[str] = mapped_column(String(32), default="SILVER")
-    preferred_categories: Mapped[list] = mapped_column(JSONB, default=list)
+    preferred_categories: Mapped[list] = mapped_column(JSON, default=list)
     kp_template_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
     bitrix_contact_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     last_contacted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)

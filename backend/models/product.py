@@ -1,4 +1,4 @@
-from sqlalchemy import String, Numeric, Integer, text
+from sqlalchemy import String, Numeric, Integer
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.types import DateTime
 from datetime import datetime
@@ -14,11 +14,10 @@ class MdmProduct(Base, UUIDMixin):
     brand: Mapped[str] = mapped_column(String(64), nullable=False)
     purchase_price: Mapped[float] = mapped_column(Numeric(12, 2), nullable=False)
     retail_price: Mapped[float] = mapped_column(Numeric(12, 2), nullable=False)
-    stock_free: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
-    stock_reserved: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    stock_free: Mapped[int] = mapped_column(Integer, default=0)
+    stock_reserved: Mapped[int] = mapped_column(Integer, default=0)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), 
         default=datetime.utcnow, 
-        server_default=text("NOW()"), 
         onupdate=datetime.utcnow
     )

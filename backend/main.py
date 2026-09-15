@@ -19,6 +19,7 @@ from core.exceptions import (
     AuthorizationError,
     ShipmentBlockedError
 )
+import models
 from api.v1.router import api_router
 
 logger = structlog.get_logger()
@@ -48,7 +49,6 @@ async def lifespan(app: FastAPI):
     """Application lifecycle manager."""
     logger.info("application_starting", env=settings.app_env)
     # Create tables if they don't exist (development only)
-    # In production, use Alembic migrations
     if settings.app_debug:
         try:
             async with engine.begin() as conn:
@@ -65,9 +65,9 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="Diyorgroup Integration Middleware",
-    description="Битрикс24 ↔ FastAPI Middleware ↔ МойСклад ↔ ИИ-Агенты",
-    version="1.0.0",
+    title="Diyorgroup Native CRM & MoySklad ERP Integration Platform",
+    description="Diyorgroup CRM (diyorgroup.uz/crm) ↔ FastAPI Middleware ↔ МойСклад ↔ ИИ-Агенты",
+    version="2.4.0",
     lifespan=lifespan,
     docs_url="/docs",
     redoc_url="/redoc",

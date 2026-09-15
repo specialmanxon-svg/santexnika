@@ -17,15 +17,10 @@ class Settings(BaseSettings):
     celery_broker_url: str = Field(default="redis://127.0.0.1:6379/1")
     celery_result_backend: str = Field(default="redis://127.0.0.1:6379/2")
     
-    # Bitrix24
-    bitrix24_domain: str = Field(default="https://diyorgroup.bitrix24.ru")
-    bitrix24_webhook_user_id: int = 1
-    bitrix24_webhook_secret: str = Field(default="test_webhook_secret")
-    bitrix24_application_token: str = Field(default="test_app_token")
-    
-    @property
-    def bitrix24_webhook_url(self) -> str:
-        return f"{self.bitrix24_domain}/rest/{self.bitrix24_webhook_user_id}/{self.bitrix24_webhook_secret}"
+    # Diyorgroup Native CRM (https://diyorgroup.uz/crm/)
+    diyorgroup_crm_url: str = Field(default="https://diyorgroup.uz/crm")
+    diyorgroup_crm_api_key: str = Field(default="diyor_crm_live_api_key_2026")
+    diyorgroup_crm_webhook_secret: str = Field(default="diyor_crm_webhook_secret_key")
     
     # MoySklad
     moysklad_api_url: str = Field(default="https://api.moysklad.ru/api/remap/1.2")
