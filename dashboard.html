@@ -874,7 +874,20 @@
 <div id="toast" class="fixed bottom-4 right-4 bg-gray-900 text-white px-4 py-3 rounded-lg shadow-xl text-sm hidden z-50 max-w-sm"></div>
 
 <script>
+// ═══════════════ HTML ESCAPING UTILITY ═══════════════
+window.escapeHtml = function(text) {
+    if (text === null || text === undefined) return '';
+    return String(text)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+};
+var escapeHtml = window.escapeHtml;
+
 // ═══════════════ API CONFIGURATION (RENDER & CPANEL) ═══════════════
+
 const DEFAULT_RENDER_API = 'https://santexnika.onrender.com';
 
 function getInitialBaseUrl() {
@@ -1957,7 +1970,7 @@ async function loadWorkplacesList() {
                                 <button type="button" onclick="editWorkplace(${loc.id})" class="btn bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs py-1 px-2.5 rounded-lg flex items-center gap-1" title="Таҳрирлаш">
                                     <span>✏️</span> <span>Таҳрир</span>
                                 </button>
-                                <button type="button" onclick="deleteWorkplace(${loc.id}, '${escapeHtml(loc.name)}')" class="btn bg-red-50 hover:bg-red-100 text-red-700 text-xs py-1 px-2.5 rounded-lg flex items-center gap-1" title="Ўчириш">
+                                <button type="button" onclick="deleteWorkplace(${loc.id})" class="btn bg-red-50 hover:bg-red-100 text-red-700 text-xs py-1 px-2.5 rounded-lg flex items-center gap-1" title="Ўчириш">
                                     <span>🗑</span>
                                 </button>
                             </div>
@@ -1971,6 +1984,8 @@ async function loadWorkplacesList() {
         if (tbody) tbody.innerHTML = `<tr><td colspan="7" class="text-center py-6 text-red-500">❌ Хатолик: ${e.message}</td></tr>`;
     }
 }
+window.renderLocationsTable = loadWorkplacesList;
+function renderLocationsTable() { return loadWorkplacesList(); }
 
 function getCurrentLocationForWorkplace() {
     if (!navigator.geolocation) {
@@ -2098,7 +2113,9 @@ async function saveWorkplace() {
     }
 }
 
-async function deleteWorkplace(id, name) {
+async function deleteWorkplace(id, explicitName = '') {
+    const loc = (workplacesList || []).find(x => x.id === id);
+    const name = explicitName || (loc ? loc.name : 'Ушбу объект');
     if (!confirm(`«${name}» объектини чиндан ҳам ўчирмоқчимисиз?`)) return;
 
     try {
