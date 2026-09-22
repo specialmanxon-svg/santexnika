@@ -398,6 +398,9 @@ async def handle_location(message: types.Message, state: FSMContext):
 
     lat = message.location.latitude
     lon = message.location.longitude
+    # Auto-detect and swap if user coordinates were inverted (Central Asia: Lat 37-45, Lon 56-73)
+    if lat > 50.0 and lon < 50.0:
+        lat, lon = lon, lat
 
     employee_id = emp.id
     employee_name = emp.employee_name

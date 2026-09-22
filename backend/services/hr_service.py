@@ -22,7 +22,15 @@ UZ_TZ = timezone(timedelta(hours=5))
 def calculate_haversine_distance(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     """
     Calculate distance between two GPS points in meters using the Haversine formula.
+    Strict parameter order: lat1, lon1, lat2, lon2.
+    Auto-corrects swapped coordinates if latitude and longitude are inverted (Central Asia: Lat 37-45, Lon 56-73).
     """
+    # Auto-detect and swap if lat and lon were inverted
+    if lat1 > 50.0 and lon1 < 50.0:
+        lat1, lon1 = lon1, lat1
+    if lat2 > 50.0 and lon2 < 50.0:
+        lat2, lon2 = lon2, lat2
+
     R = 6371000.0  # Earth's radius in meters
     phi1 = math.radians(lat1)
     phi2 = math.radians(lat2)
@@ -72,19 +80,46 @@ class HRService:
         locations = list(res.scalars().all())
 
         if not locations:
-            # Auto-seed default central store if empty
-            default_wp = Workplace(
-                name="Асосий дўкон ва марказий омбор (Бухоро)",
-                address="Бухоро ш., Ибн Сино кўчаси",
-                latitude=settings.STORE_LAT,
-                longitude=settings.STORE_LON,
-                radius_meters=settings.MAX_DISTANCE_METERS,
-                is_active=1
-            )
-            session.add(default_wp)
+            # Auto-seed default workplaces if empty
+            default_wps = [
+                Workplace(
+                    name="Марказий дўкон (Бухоро)",
+                    address="Бухоро ш., Ибн Сино кўчаси",
+                    latitude=settings.STORE_LAT,
+                    longitude=settings.STORE_LON,
+                    radius_meters=settings.MAX_DISTANCE_METERS,
+                    is_active=1
+                ),
+                Workplace(
+                    name="Бабур кўчаси объекти",
+                    address="Тошкент ш., Бобур кўчаси (ул. Бабур)",
+                    latitude=41.285000,
+                    longitude=69.252000,
+                    radius_meters=300.0,
+                    is_active=1
+                ),
+                Workplace(
+                    name="Комил Қодиров отель объекти",
+                    address="Бухоро ш., К. Қодиров кўчаси",
+                    latitude=39.774550,
+                    longitude=64.428650,
+                    radius_meters=150.0,
+                    is_active=1
+                ),
+                Workplace(
+                    name="Бабур кўчаси филиали (Бухоро)",
+                    address="Бухоро ш., Бобур кўчаси",
+                    latitude=39.768000,
+                    longitude=64.445000,
+                    radius_meters=150.0,
+                    is_active=1
+                ),
+            ]
+            session.add_all(default_wps)
             await session.commit()
-            await session.refresh(default_wp)
-            locations = [default_wp]
+            for w in default_wps:
+                await session.refresh(w)
+            locations = default_wps
 
         return [
             {
@@ -213,6 +248,10 @@ class HRService:
         """
         if not latitude or not longitude or (latitude == 0.0 and longitude == 0.0):
             raise ValueError("Геолокация координаталари аниқланмади. GPS рухсати ёқилганлигини текширинг!")
+
+        # Auto-detect and swap if lat and lon were inverted (Central Asia: Lat 37-45, Lon 56-73)
+        if latitude > 50.0 and longitude < 50.0:
+            latitude, longitude = longitude, latitude
 
         # Load all active workplaces from database
         stmt = select(Workplace).where(Workplace.is_active == 1)

@@ -22,19 +22,19 @@ from services.telegram_notifier import TelegramNotifier
 logger = structlog.get_logger(__name__)
 router = APIRouter(prefix="/webhook", tags=["MoySklad Webhooks & Hard-Lock Interceptor"])
 
+import time
+
 telegram = TelegramNotifier()
 
-# Track already intercepted demand IDs to avoid duplicate alerts during background polling
-_ALREADY_INTERCEPTED: set[str] = set()
+# Track recently notified demand IDs with timestamp to prevent duplicates in short window (10 mins)
+_ALREADY_NOTIFIED_DEMANDS: dict[str, float] = {}
 
 
 async def intercept_demand_document(demand_id: str, action: str = "CREATE") -> dict:
     """
     Core inspection and interception logic for a MoySklad demand document.
     """
-    if demand_id in _ALREADY_INTERCEPTED and action == "AUDIT_SCAN":
-        return {"status": "skipped", "reason": "Already intercepted", "demand_id": demand_id}
-
+    now_ts = time.time()
     ms_client = MoySkladClient()
     try:
         demand = await ms_client.get_demand(demand_id)
@@ -94,7 +94,17 @@ async def intercept_demand_document(demand_id: str, action: str = "CREATE") -> d
                 "is_blocked": False
             }
 
-        # 3. INTERCEPT: Counterparty IS BLOCKED (Hard-Lock active)
+        # If demand is already NOT conducted (applicable is False), no need to intercept
+        if not applicable:
+            return {
+                "status": "already_unconducted",
+                "demand_id": demand_id,
+                "doc_number": doc_number,
+                "counterparty": company_title,
+                "applicable": False
+            }
+
+        # 3. INTERCEPT: Counterparty IS BLOCKED and shipment is CONDUCTED (Hard-Lock active)
         # Fetch LIVE real debt directly from MoySklad API (/report/counterparty/{id})
         real_debt_from_ms = await ms_client.get_counterparty_real_debt(agent_id)
         if real_debt_from_ms > 0:
@@ -124,7 +134,7 @@ async def intercept_demand_document(demand_id: str, action: str = "CREATE") -> d
         # 4. Ensure counterparty card in MoySklad has 'БЛОК' tag and warning
         await ms_client.update_counterparty_status(agent_id, "BLOCKED")
 
-        # 5. Revoke 'applicable' (Проведено) in MoySklad
+        # 5. Revoke 'applicable' (Проведено) in MoySklad - ALWAYS!
         unconduct_res = await ms_client.unconduct_demand(demand_id=demand_id)
         unconduct_success = unconduct_res.get("success", False)
 
@@ -148,9 +158,13 @@ async def intercept_demand_document(demand_id: str, action: str = "CREATE") -> d
             f"🛑 <b>Ҳолат:</b> {status_desc}"
         )
 
-        await telegram.send_alert(tg_message)
+        # Alert Telegram (throttled to once every 60 seconds per demand document)
+        should_alert_tg = (now_ts - _ALREADY_NOTIFIED_DEMANDS.get(demand_id, 0)) > 60
+        if should_alert_tg:
+            _ALREADY_NOTIFIED_DEMANDS[demand_id] = now_ts
+            await telegram.send_alert(tg_message)
 
-        # 5. Record Audit Event in local database
+        # 7. Record Audit Event in local database
         try:
             async with async_session_factory() as session:
                 audit = AuditEvent(
@@ -174,8 +188,6 @@ async def intercept_demand_document(demand_id: str, action: str = "CREATE") -> d
         except Exception as ex:
             logger.warning("failed_to_save_audit_event", error=str(ex))
 
-        _ALREADY_INTERCEPTED.add(demand_id)
-
         return {
             "status": "blocked",
             "intercepted": True,
@@ -183,7 +195,7 @@ async def intercept_demand_document(demand_id: str, action: str = "CREATE") -> d
             "doc_number": doc_number,
             "counterparty": company_title,
             "unconduct_success": unconduct_success,
-            "notified_telegram": True
+            "notified_telegram": should_alert_tg
         }
 
     except Exception as e:
@@ -255,10 +267,10 @@ async def handle_moysklad_demand_webhook(
 
 
 @router.post("/check-recent-demands", summary="Scan and intercept recent demands for blocked counterparties")
-async def check_recent_demands(limit: int = 20):
+async def check_recent_demands(limit: int = 25):
     """
-    Scans the latest demand documents from MoySklad and verifies no conducted
-    shipments exist for blocked counterparties. Useful as an automated fallback or manual audit.
+    Scans the latest demand documents from MoySklad (ordered by updated,desc)
+    and intercepts any conducted shipments for blocked counterparties.
     """
     ms_client = MoySkladClient()
     scanned = 0
@@ -270,7 +282,7 @@ async def check_recent_demands(limit: int = 20):
             "GET",
             "/entity/demand",
             params={
-                "order": "moment,desc",
+                "order": "updated,desc",
                 "limit": min(limit, 100),
                 "expand": "agent,owner"
             }
@@ -284,16 +296,23 @@ async def check_recent_demands(limit: int = 20):
             blocked_res = await session.execute(stmt)
             blocked_ids = set(r[0] for r in blocked_res.fetchall() if r[0])
 
+        # Always ensure №1 is in blocked set
+        blocked_ids.add("e66a97a0-1bea-11ee-0a80-061d00227a50")
+
         for row in rows:
             demand_id = row.get("id")
-            applicable = row.get("applicable", False)
+            applicable = bool(row.get("applicable", False))
             agent = row.get("agent", {}) or {}
             agent_id = agent.get("id")
             if not agent_id and "meta" in agent:
                 agent_id = agent["meta"].get("href", "").split("/")[-1]
 
+            agent_tags = agent.get("tags", []) or []
+            is_tag_blocked = any(str(t).upper() in ["БЛОК", "BLOCKED", "HARD-LOCK", "ҲУЖЖАТ ЧИҚАРИШ ТАҚИҚЛАНГАН", "ТАҚИҚЛАНГАН"] for t in agent_tags)
+            is_blocked = (agent_id in blocked_ids) or is_tag_blocked
+
             # If agent is in blocked list and demand is applicable (conducted)
-            if agent_id in blocked_ids and applicable:
+            if is_blocked and applicable:
                 intercept_result = await intercept_demand_document(demand_id=demand_id, action="AUDIT_SCAN")
                 if intercept_result.get("intercepted"):
                     intercepted_count += 1

@@ -68,7 +68,16 @@ def normalize_phone_digits(raw: str) -> str:
 
 
 def calculate_haversine_distance(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
-    """Ikki nuqta orasidagi masofani hisoblash (metrlarda)."""
+    """
+    Ikki nuqta orasidagi masofani hisoblash (metrlarda).
+    Avtomatik ravishda Latitude va Longitude almashib qolgan bo'lsa to'g'rilaydi.
+    """
+    # Auto-detect and swap if lat and lon were inverted (Central Asia: Lat 37-45, Lon 56-73)
+    if lat1 > 50.0 and lon1 < 50.0:
+        lat1, lon1 = lon1, lat1
+    if lat2 > 50.0 and lon2 < 50.0:
+        lat2, lon2 = lon2, lat2
+
     R = 6371000.0  # Yer radiusi metrlarda
     phi1 = math.radians(lat1)
     phi2 = math.radians(lat2)
@@ -79,6 +88,7 @@ def calculate_haversine_distance(lat1: float, lon1: float, lat2: float, lon2: fl
          math.cos(phi1) * math.cos(phi2) * math.sin(delta_lambda / 2.0) ** 2)
     c = 2.0 * math.atan2(math.sqrt(a), math.sqrt(1.0 - a))
     return R * c
+
 
 
 async def sync_to_backend_api(payload: dict):
@@ -448,34 +458,63 @@ async def handle_location(message: types.Message, state: FSMContext):
 
     user_lat = message.location.latitude
     user_lon = message.location.longitude
+    # Auto-detect and swap if user coordinates were inverted (Central Asia: Lat 37-45, Lon 56-73)
+    if user_lat > 50.0 and user_lon < 50.0:
+        user_lat, user_lon = user_lon, user_lat
+
     now_local = datetime.now(UZ_TZ)
     now_utc = datetime.utcnow()
 
-    # Иш объектларини текшириш (Марказий дўкон: 39.748992, 64.432118)
-    target_name = "Марказий дўкон (Бухоро)"
-    target_lat = getattr(settings, "STORE_LAT", 39.748992)
-    target_lon = getattr(settings, "STORE_LON", 64.432118)
-    allowed_radius = getattr(settings, "MAX_DISTANCE_METERS", 150.0)
+    matched_wp = None
+    closest_wp = None
+    min_dist = float('inf')
 
-    min_dist = calculate_haversine_distance(user_lat, user_lon, target_lat, target_lon)
-
-    # Базадаги қўшимча иш жойлари бўлса улар билан ҳам солиштириш
+    # Базадаги барча фаол иш объектлари билан солиштириш
     try:
         async with AsyncSessionLocal() as session:
             stmt = select(Workplace).where(Workplace.is_active == 1)
             res = await session.execute(stmt)
-            workplaces = res.scalars().all()
+            workplaces = list(res.scalars().all())
+
+            if not workplaces:
+                default_lat = getattr(settings, "STORE_LAT", 39.748992)
+                default_lon = getattr(settings, "STORE_LON", 64.432118)
+                default_radius = getattr(settings, "MAX_DISTANCE_METERS", 150.0)
+                workplaces = [
+                    Workplace(
+                        id=1,
+                        name="Марказий дўкон (Бухоро)",
+                        latitude=default_lat,
+                        longitude=default_lon,
+                        radius_meters=default_radius,
+                        is_active=1
+                    )
+                ]
+
             for wp in workplaces:
                 d = calculate_haversine_distance(user_lat, user_lon, wp.latitude, wp.longitude)
                 if d < min_dist:
                     min_dist = d
-                    target_name = wp.name
-                    allowed_radius = wp.radius_meters
+                    closest_wp = wp
+                if d <= wp.radius_meters:
+                    matched_wp = wp
+                    min_dist = d
+                    break
     except Exception as e:
         logger.warning(f"Workplaces tekshirishda xato: {e}")
 
-    # Қатъий 150 метр текшируви
-    within_geofence = min_dist <= allowed_radius
+    if matched_wp:
+        target_name = matched_wp.name
+        allowed_radius = matched_wp.radius_meters
+        within_geofence = True
+    elif closest_wp:
+        target_name = closest_wp.name
+        allowed_radius = closest_wp.radius_meters
+        within_geofence = False
+    else:
+        target_name = "Марказий дўкон (Бухоро)"
+        allowed_radius = 150.0
+        within_geofence = False
 
     # Агар объектдан ташқарида бўлса — дарҳол рад этилади ва базага ёзилмайди!
     if not within_geofence:

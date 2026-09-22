@@ -49,18 +49,18 @@ structlog.configure(
 
 
 async def _demand_hard_lock_monitor():
-    """Background fallback monitor for blocked counterparty shipments."""
+    """Background real-time monitor for blocked counterparty shipments (4s polling)."""
     logger.info("hard_lock_demand_monitor_started")
-    await asyncio.sleep(10)  # Initial grace delay
+    await asyncio.sleep(2)  # Initial grace delay
     while True:
         try:
             from api.v1.webhook import check_recent_demands
-            await check_recent_demands(limit=15)
+            await check_recent_demands(limit=25)
         except asyncio.CancelledError:
             break
         except Exception as e:
             logger.warning("hard_lock_demand_monitor_error", error=str(e))
-        await asyncio.sleep(30)
+        await asyncio.sleep(4)
 
 
 @asynccontextmanager
