@@ -38,11 +38,44 @@ async def trigger_moysklad_sync(dry_run: bool = False):
     return result
 
 
-@router.get("/stock", summary="Остатки товаров в базе (MDM)")
-async def get_local_stock(limit: int = 100, offset: int = 0):
+@router.get("/folders", summary="Дерево групп товаров (Product Folders) из МойСклад")
+async def get_moysklad_folders():
     """
-    Возвращает актуальные остатки товаров, синхронизированные из МойСклад.
+    Возвращает иерархию папок и категорий товаров из МойСклад API.
     """
+    client = MoySkladClient()
+    try:
+        if await client.is_configured():
+            return await client.get_product_folders()
+        return {"root_folders": [], "all_folders": []}
+    except Exception as e:
+        logger.warning("moysklad_folders_fetch_failed", error=str(e))
+        return {"root_folders": [], "all_folders": [], "error": str(e)}
+    finally:
+        await client.close()
+
+
+@router.get("/stock", summary="Остатки товаров в базе и Live МойСклад")
+async def get_stock(
+    folder_id: str | None = None,
+    limit: int = 50,
+    offset: int = 0
+):
+    """
+    Возвращает актуальные товары и остатки, при передаче folder_id фильтрует по выбранной категории.
+    """
+    client = MoySkladClient()
+    try:
+        if await client.is_configured():
+            items = await client.get_live_stock_by_folder(folder_id=folder_id, limit=limit, offset=offset)
+            if items:
+                return items
+    except Exception as e:
+        logger.warning("live_stock_fetch_failed_falling_back_to_db", error=str(e))
+    finally:
+        await client.close()
+
+    # Fallback to local DB if MoySklad live request failed or offline
     async with async_session_factory() as session:
         stmt = select(MdmProduct).offset(offset).limit(limit)
         res = await session.execute(stmt)
@@ -59,6 +92,7 @@ async def get_local_stock(limit: int = 100, offset: int = 0):
                 "retail_price": float(p.retail_price),
                 "stock_free": p.stock_free,
                 "stock_reserved": p.stock_reserved,
+                "image_url": None,
                 "updated_at": p.updated_at.isoformat() if p.updated_at else None
             }
             for p in products

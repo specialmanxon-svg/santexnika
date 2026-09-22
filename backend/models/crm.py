@@ -2,13 +2,13 @@
 from datetime import datetime
 from uuid import UUID, uuid4
 from enum import Enum
-from sqlalchemy import String, Text, Boolean, Integer, Float, DateTime, ForeignKey, Enum as SQLEnum
+from sqlalchemy import String, Text, Boolean, Integer, Float, DateTime, ForeignKey, Enum as SQLEnum, JSON
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from models.base import Base
 
 
 class CrmPipelineType(str, Enum):
-    B2C_SHOWROOM = "B2C_SHOWROOM"          # Шоурум сантехники (дизайнеры 7%)
+    B2C_SHOWROOM = "B2C_SHOWROOM"          # Шоурум сантехники (бонус рефералам 5%)
     B2B_OBJECT = "B2B_OBJECT"              # Объектное снабжение (жесткий контроль долгов)
 
 
@@ -17,7 +17,7 @@ class CrmStageType(str, Enum):
     QUALIFIED = "QUALIFIED"                # Квалифицирован AI Sales
     ESTIMATE_CALCULATED = "ESTIMATE_CALCULATED" # Смета проверена на совместимость
     INVOICE_ISSUED = "INVOICE_ISSUED"      # Счет выставлен (Триггер резерва в МойСклад)
-    PAID = "PAID"                          # Оплачен (Триггер комиссии 7% дизайнеру)
+    PAID = "PAID"                          # Оплачен (Триггер бонуса 5% рефералу)
     SHIPPED = "SHIPPED"                    # Отгружен
     CLOSED_WON = "CLOSED_WON"              # Успешно завершен
     CLOSED_LOST = "CLOSED_LOST"            # Провален
@@ -46,11 +46,13 @@ class CrmDeal(Base):
     pipeline_type: Mapped[CrmPipelineType] = mapped_column(SQLEnum(CrmPipelineType), default=CrmPipelineType.B2C_SHOWROOM)
     stage: Mapped[CrmStageType] = mapped_column(SQLEnum(CrmStageType), default=CrmStageType.NEW)
     counterparty_name: Mapped[str] = mapped_column(String(255))
+    counterparty_phone: Mapped[str | None] = mapped_column(String(32), nullable=True)
     total_amount: Mapped[float] = mapped_column(Float, default=0.0)
     moysklad_order_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     designer_username: Mapped[str | None] = mapped_column(String(128), nullable=True)
     designer_commission: Mapped[float] = mapped_column(Float, default=0.0)
     compat_status: Mapped[str] = mapped_column(String(64), default="CHECK_PENDING")
+    items: Mapped[dict | list | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 

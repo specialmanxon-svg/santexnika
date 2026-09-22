@@ -1,12 +1,11 @@
+"""Diyor Group — Маълумотлар моделлари."""
 from .base import Base
 from .product import MdmProduct
-from .embedding import TechnicalEmbedding
-from .compatibility import CompatibilityRule
 from .debt import DebtRegistry
 from .audit import AuditEvent
-from .social import PartnerProfile, SocialStoryLead, PlumberProfile
+from .social import PartnerProfile
 from .inventory import InventoryItem
-from .hr import WorkTimesheet
+from .hr import WorkTimesheet, Workplace
 from .campaign import TelegramCampaign
 from .crm import CrmLead, CrmDeal, CrmTask, CrmPipelineType, CrmStageType
 
@@ -18,16 +17,13 @@ __all__ = [
     "Base",
     "MdmProduct",
     "ProductMDM",
-    "TechnicalEmbedding",
-    "CompatibilityRule",
     "DebtRegistry",
     "AuditEvent",
     "AuditLog",
     "PartnerProfile",
-    "SocialStoryLead",
-    "PlumberProfile",
     "InventoryItem",
     "WorkTimesheet",
+    "Workplace",
     "TelegramCampaign",
     "CrmLead",
     "CrmDeal",

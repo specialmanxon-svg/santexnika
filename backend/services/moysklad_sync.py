@@ -47,10 +47,11 @@ async def sync_moysklad_stock_and_products(dry_run: bool = False) -> dict:
             # --- РЕАЛЬНЫЙ РЕЖИМ (Live MoySklad API) ---
             logger.info("fetching_live_moysklad_data")
             
-            # 1. Получаем список товаров
-            products_data = await ms_client.get_products(limit=1000)
-            ms_products = products_data.get("rows", [])
+            # 1. Получаем полный каталог товаров с пагинацией
+            logger.info("fetching_all_products_paginated")
+            ms_products = await ms_client._paginate("GET", "/entity/product")
             stats["total_fetched"] = len(ms_products)
+            logger.info("total_products_fetched", count=len(ms_products))
             
             # 2. Получаем отчет по остаткам
             stock_map = {}
@@ -58,7 +59,7 @@ async def sync_moysklad_stock_and_products(dry_run: bool = False) -> dict:
                 stock_rows = await ms_client.get_stock_all()
                 for s in stock_rows:
                     meta_href = s.get("meta", {}).get("href", "")
-                    prod_id = meta_href.split("/")[-1]
+                    prod_id = meta_href.split("/")[-1].split("?")[0]
                     stock_map[prod_id] = {
                         "stock": float(s.get("stock", 0)),
                         "reserve": float(s.get("reserve", 0)),
@@ -308,3 +309,13 @@ async def sync_moysklad_stock_and_products(dry_run: bool = False) -> dict:
 
     finally:
         await ms_client.close()
+
+
+async def smart_get_or_create_counterparty(client_name: str, phone: str = None) -> dict:
+    """Helper to find or create counterparty using 4-step smart deduplication."""
+    ms = MoySkladClient()
+    try:
+        return await ms.get_or_create_counterparty(client_name, phone=phone)
+    finally:
+        await ms.close()
+

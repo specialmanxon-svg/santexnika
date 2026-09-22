@@ -12,6 +12,11 @@ class Settings(BaseSettings):
         extra="ignore"
     )
     
+    # App Settings
+    app_env: str = Field(default="production")
+    app_debug: bool = Field(default=False)
+    log_level: str = Field(default="INFO")
+
     # Database
     database_url: str = Field(default=f"sqlite+aiosqlite:///{DEFAULT_DB_PATH}", description="Async database connection string")
     database_url_sync: str = Field(default=f"sqlite:///{DEFAULT_DB_PATH}", description="Sync database connection string")
@@ -58,11 +63,24 @@ class Settings(BaseSettings):
     otp_secret: str = Field(default="JBSWY3DPEHPK3PXP")
     superuser_token: str = Field(default="diyor-admin-superuser-token")
     
-    # App
-    app_env: str = "development"
-    app_debug: bool = True
-    app_host: str = "127.0.0.1"
-    app_port: int = 8000
-    log_level: str = "INFO"
+    # HR & GPS Store Location (Bukhara Store / Warehouse)
+    store_latitude: float = Field(default=39.7675, description="Bukhara store/warehouse latitude")
+    store_longitude: float = Field(default=64.4231, description="Bukhara store/warehouse longitude")
+    store_radius_meters: float = Field(default=100.0, description="Allowed check-in radius in meters")
+    store_work_start_hour: int = Field(default=9, description="Work shift start hour (e.g. 9 for 09:00)")
+    kpi_bonus_percent: float = Field(default=2.0, description="Default sales KPI bonus percent")
+
+    # Aliases requested for Telegram bot GPS check
+    @property
+    def STORE_LAT(self) -> float:
+        return self.store_latitude
+
+    @property
+    def STORE_LON(self) -> float:
+        return self.store_longitude
+
+    @property
+    def MAX_DISTANCE_METERS(self) -> float:
+        return self.store_radius_meters
 
 settings = Settings()

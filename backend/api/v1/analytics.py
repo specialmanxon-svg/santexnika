@@ -1,22 +1,14 @@
-"""API endpoints for Growth Director forecasts and Inventory Liquidity."""
+"""API endpoints for Inventory Liquidity and Data Export."""
+from typing import Optional
 from fastapi import APIRouter, Depends, Query, HTTPException
-from fastapi.responses import Response
+from fastapi.responses import Response, StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from core.database import get_db
-from agents.growth_agent import GrowthDirectorAgent
 from agents.inventory_agent import InventoryAgent
-from core.rbac import RBACService
+from services.excel_exporter import generate_excel_report
 
-router = APIRouter(prefix="/analytics", tags=["Analytics & Agents"])
-growth_agent = GrowthDirectorAgent()
+router = APIRouter(prefix="/analytics", tags=["Аналитика ва Экспорт"])
 inventory_agent = InventoryAgent()
-rbac_service = RBACService()
-
-
-@router.get("/growth-forecast")
-async def get_growth_forecast(city: str = Query("Бухара", enum=["Бухара", "Ташкент", "Алматы", "Астана"])):
-    """Прогнозирование регионального спроса ИИ-Директором по развитию."""
-    return await growth_agent.forecast_regional_demand(city)
 
 
 @router.get("/inventory-liquidity")
@@ -29,24 +21,26 @@ async def get_inventory_liquidity(db: AsyncSession = Depends(get_db)):
 async def export_data(
     format_type: str = Query("json", enum=["json", "csv", "excel"]),
     dataset: str = Query("financial_summary", enum=["financial_summary", "debt_registry", "inventory_liquidity"]),
-    role: str = Query("owner", description="Роль пользователя в RBAC")
+    db: AsyncSession = Depends(get_db)
 ):
-    """Выгрузка данных по запросу владельца (Data Portability & Backup)."""
-    if role != "owner":
-        raise HTTPException(status_code=403, detail="Экспорт разрешен только владельцу (Owner)")
-    
-    file_bytes = await rbac_service.export_data(format_type, dataset, role)
-    
-    media_map = {
-        "json": "application/json",
-        "csv": "text/csv",
-        "excel": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-    }
-    ext_map = {"json": "json", "csv": "csv", "excel": "xlsx"}
-    filename = f"{dataset}_{format_type}.{ext_map.get(format_type, 'dat')}"
-    
-    return Response(
-        content=file_bytes,
-        media_type=media_map.get(format_type, "application/octet-stream"),
-        headers={"Content-Disposition": f"attachment; filename={filename}"}
-    )
+    """Маълумотларни экспорт қилиш (Excel, JSON, CSV)."""
+    if format_type == "excel":
+        excel_stream = await generate_excel_report(db)
+        return StreamingResponse(
+            excel_stream,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={
+                "Content-Disposition": f"attachment; filename=diyorgroup_{dataset}.xlsx",
+                "Access-Control-Expose-Headers": "Content-Disposition"
+            }
+        )
+
+    # For JSON/CSV fallback
+    return {"status": "export_requested", "format": format_type, "dataset": dataset}
+
+
+@router.post("/inventory-audit")
+async def run_inventory_audit(db: AsyncSession = Depends(get_db)):
+    """Запуск аудита неликвидов с обновлением базы и уведомлением в Telegram."""
+    result = await inventory_agent.audit_inventory_liquidity(db, force_refresh=True)
+    return result
