@@ -239,8 +239,7 @@ class HRService:
         for wp in workplaces:
             dist = calculate_haversine_distance(latitude, longitude, wp.latitude, wp.longitude)
             all_distances.append((wp, dist))
-            # 50 meter extra buffer for mobile GPS jitter
-            if dist <= (wp.radius_meters + 50.0):
+            if dist <= wp.radius_meters:
                 matched_workplaces.append((wp, dist))
 
         # Check if matched any workplace or override provided by verified bot

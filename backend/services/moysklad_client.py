@@ -934,5 +934,125 @@ class MoySkladClient:
             "total_credit": sum(op["credit"] for op in operations)
         }
 
+    async def update_counterparty_status(self, counterparty_id: str, status: str) -> dict:
+        """
+        Updates counterparty tags and description in MoySklad when Hard-Lock status changes.
+        status: 'BLOCKED' or 'ACTIVE'
+        """
+        try:
+            cp = await self._request("GET", f"/entity/counterparty/{counterparty_id}")
+            current_tags = list(cp.get("tags") or [])
+            current_desc = cp.get("description") or ""
+
+            block_tags = ["БЛОК", "BLOCKED", "HARD-LOCK", "ҲУЖЖАТ ЧИҚАРИШ ТАҚИҚЛАНГАН"]
+            block_warning = "🛑 ДИҚҚАТ: Ушбу контрагент қарздорлик сабабли блокланган (HARD-LOCK)! Сотув ҳужжатлари чиқариш тақиқланади."
+
+            if status == "BLOCKED":
+                for tag in block_tags:
+                    if tag not in current_tags:
+                        current_tags.append(tag)
+                if block_warning not in current_desc:
+                    new_desc = f"{block_warning}\n{current_desc}".strip()
+                else:
+                    new_desc = current_desc
+            else:
+                current_tags = [t for t in current_tags if t not in block_tags and t != "ТАҚИҚЛАНГАН"]
+                new_desc = current_desc.replace(block_warning, "").strip()
+
+            payload = {
+                "tags": current_tags,
+                "description": new_desc
+            }
+            res = await self._request("PUT", f"/entity/counterparty/{counterparty_id}", json_data=payload)
+            logger.info("moysklad_counterparty_status_updated", counterparty_id=counterparty_id, status=status)
+            return {"success": True, "data": res}
+        except Exception as e:
+            logger.warning("moysklad_counterparty_status_update_failed", counterparty_id=counterparty_id, status=status, error=str(e))
+            return {"success": False, "error": str(e)}
+
+    async def get_counterparty_real_debt(self, counterparty_id: str) -> float:
+        """
+        Fetches live real balance directly from MoySklad API /report/counterparty/{counterparty_id}.
+        Returns absolute debt amount in UZS (sum / 100).
+        """
+        try:
+            rep = await self._request("GET", f"/report/counterparty/{counterparty_id}")
+            bal = float(rep.get("balance", 0.0) or 0.0)
+            return abs(bal) / 100.0
+        except Exception as e:
+            logger.warning("failed_to_fetch_counterparty_real_debt", counterparty_id=counterparty_id, error=str(e))
+            return 0.0
+
+    async def get_demand(self, demand_id: str) -> dict:
+        """Fetches single demand document with expanded agent and owner relations."""
+        return await self._request("GET", f"/entity/demand/{demand_id}", params={"expand": "agent,owner"})
+
+    async def unconduct_demand(self, demand_id: str, reason: str = "") -> dict:
+        """
+        Unconducts (applicable=False) a demand document in MoySklad
+        and updates description with Hard-Lock warning.
+        """
+        exact_desc = "🛑 ДИҚҚАТ: Ушбу мижозга Hard-Lock тақиқи қўйилган! Ҳужжат дастур томонидан автоматик бекор қилинди."
+        if reason:
+            exact_desc = f"{exact_desc} ({reason})"
+        payload = {
+            "applicable": False,
+            "description": exact_desc
+        }
+        try:
+            res = await self._request("PUT", f"/entity/demand/{demand_id}", json_data=payload)
+            logger.info("demand_unconducted_successfully", demand_id=demand_id)
+            return {"success": True, "data": res}
+        except Exception as e:
+            logger.error("demand_unconduct_failed", demand_id=demand_id, error=str(e))
+            return {"success": False, "error": str(e)}
+
+    async def get_webhooks(self) -> list:
+        """Fetch list of active webhooks registered in MoySklad."""
+        try:
+            res = await self._request("GET", "/entity/webhook")
+            return res.get("rows", [])
+        except Exception as e:
+            logger.warning("moysklad_get_webhooks_failed", error=str(e))
+            return []
+
+    async def create_webhook(self, url: str, action: str = "CREATE", entity_type: str = "demand") -> dict:
+        """Register a webhook in MoySklad."""
+        payload = {
+            "url": url,
+            "action": action,
+            "entityType": entity_type,
+            "enabled": True
+        }
+        return await self._request("POST", "/entity/webhook", json_data=payload)
+
+    async def ensure_demand_webhooks(self, webhook_url: str = "https://diyorgroup.uz/api/v1/webhook/moysklad-demand") -> dict:
+        """
+        Ensures both CREATE and UPDATE webhooks for 'demand' are registered in MoySklad.
+        If permission is restricted (code 30004), returns instructions.
+        """
+        results = {"success": True, "registered": [], "existing": [], "errors": []}
+        try:
+            existing = await self.get_webhooks()
+            existing_actions = set()
+            for wh in existing:
+                if wh.get("url") == webhook_url and wh.get("entityType") == "demand":
+                    existing_actions.add(wh.get("action"))
+                    results["existing"].append(wh)
+
+            for action in ["CREATE", "UPDATE"]:
+                if action not in existing_actions:
+                    try:
+                        created = await self.create_webhook(url=webhook_url, action=action, entity_type="demand")
+                        results["registered"].append(created)
+                    except Exception as ex:
+                        results["success"] = False
+                        results["errors"].append({"action": action, "error": str(ex)})
+        except Exception as e:
+            results["success"] = False
+            results["errors"].append({"general": str(e)})
+
+        return results
+
     async def close(self):
         await self.client.aclose()

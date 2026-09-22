@@ -1,4 +1,5 @@
 import sys
+import asyncio
 from pathlib import Path
 
 # Ensure backend directory is in sys.path for Render and local deployments
@@ -47,6 +48,21 @@ structlog.configure(
 )
 
 
+async def _demand_hard_lock_monitor():
+    """Background fallback monitor for blocked counterparty shipments."""
+    logger.info("hard_lock_demand_monitor_started")
+    await asyncio.sleep(10)  # Initial grace delay
+    while True:
+        try:
+            from api.v1.webhook import check_recent_demands
+            await check_recent_demands(limit=15)
+        except asyncio.CancelledError:
+            break
+        except Exception as e:
+            logger.warning("hard_lock_demand_monitor_error", error=str(e))
+        await asyncio.sleep(30)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifecycle manager."""
@@ -59,8 +75,21 @@ async def lifespan(app: FastAPI):
             logger.info("database_tables_created")
         except Exception as e:
             logger.warning("database_init_skipped", error=str(e), hint="Running in local mode without Docker DB")
+
+    # Start background demand monitor task
+    monitor_task = asyncio.create_task(_demand_hard_lock_monitor())
+
     yield
+
     logger.info("application_shutting_down")
+    monitor_task.cancel()
+    try:
+        await monitor_task
+    except asyncio.CancelledError:
+        pass
+    except Exception:
+        pass
+
     try:
         await engine.dispose()
     except Exception:

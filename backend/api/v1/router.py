@@ -14,6 +14,7 @@ from api.v1.analytics import router as analytics_router
 from api.v1.counterparties import router as counterparties_router
 from api.v1.crm import router as crm_router
 from api.v1.management import router as management_router
+from api.v1.webhook import router as webhook_router
 
 api_router = APIRouter(prefix="/api/v1")
 
@@ -28,6 +29,7 @@ api_router.include_router(partners_router)        # 5.1 Партнеры ва 5%
 
 # === Ёрдамчи роутерлар ===
 api_router.include_router(moysklad_router)        # МойСклад интеграция
+api_router.include_router(webhook_router)         # МойСклад Webhook & Hard-Lock назорати
 api_router.include_router(counterparties_router)   # Контрагентлар
 api_router.include_router(campaigns_router)        # Рассылкалар
 api_router.include_router(analytics_router)        # Аналитика

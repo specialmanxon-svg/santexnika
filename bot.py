@@ -107,6 +107,31 @@ async def sync_to_backend_api(payload: dict):
         logger.warning(f"sync_to_backend_api хатоси: {e}")
 
 
+async def notify_management(bot: Bot, text: str):
+    """Раҳбарият гуруҳи ва каналига хабар юбориш."""
+    chat_ids = set()
+    group_id = os.getenv("TELEGRAM_GROUP_ID") or getattr(settings, "telegram_group_id", None)
+    if group_id and str(group_id).strip():
+        chat_ids.add(str(group_id).strip())
+
+    alert_id = getattr(settings, "TELEGRAM_ALERT_CHAT_ID", None) or os.getenv("TELEGRAM_ALERT_CHAT_ID")
+    if alert_id and str(alert_id).strip():
+        chat_ids.add(str(alert_id).strip())
+
+    ceo_id = getattr(settings, "TELEGRAM_CEO_CHAT_ID", None) or os.getenv("TELEGRAM_CEO_CHAT_ID")
+    if ceo_id and str(ceo_id).strip():
+        chat_ids.add(str(ceo_id).strip())
+
+    chat_ids.add("5950380558")  # Feruz Latipov (@Diyor_manager)
+
+    for cid in chat_ids:
+        try:
+            await bot.send_message(chat_id=cid, text=text, parse_mode="HTML")
+            logger.info(f"Раҳбариятга хабар юборилди: {cid}")
+        except Exception as ex:
+            logger.warning(f"Раҳбариятга хабар юборишда хатолик ({cid}): {ex}")
+
+
 # ═══════════════ KLAVIATURALAR ═══════════════
 
 def get_auth_keyboard() -> ReplyKeyboardMarkup:
@@ -130,8 +155,7 @@ def get_main_keyboard() -> ReplyKeyboardMarkup:
                 KeyboardButton(text="🔴 Ишдан кетдим (GPS)")
             ]
         ],
-        resize_keyboard=True,
-        input_field_placeholder="Иш ҳолатини танланг..."
+        resize_keyboard=True
     )
 
 
@@ -139,16 +163,11 @@ def get_location_keyboard() -> ReplyKeyboardMarkup:
     """GPS геолокацияни сўраш клавиатураси."""
     return ReplyKeyboardMarkup(
         keyboard=[
-            [
-                KeyboardButton(text="📍 Геолокацияни юбориш", request_location=True)
-            ],
-            [
-                KeyboardButton(text="❌ Бекор қилиш")
-            ]
+            [KeyboardButton(text="📍 Ҳозирги геолокацияни юбориш", request_location=True)],
+            [KeyboardButton(text="❌ Бекор қилиш")]
         ],
         resize_keyboard=True,
-        one_time_keyboard=True,
-        input_field_placeholder="«Геолокацияни юбориш» тугмасини босинг..."
+        one_time_keyboard=True
     )
 
 
@@ -351,7 +370,7 @@ async def handle_text_phone(message: types.Message):
         await message.answer(reject_text, reply_markup=get_auth_keyboard(), parse_mode="HTML")
 
 
-@router.message(F.text == "🟢 Ишга келдим (GPS)")
+@router.message(F.text.contains("Ишга келдим") | (F.text == "🟢 Ишга келдим (GPS)"))
 async def btn_checkin(message: types.Message, state: FSMContext):
     """Ишга келиш GPS сўрови."""
     emp = await get_authorized_employee(message.from_user.id)
@@ -368,14 +387,13 @@ async def btn_checkin(message: types.Message, state: FSMContext):
     await state.update_data(action="CHECKIN", employee_id=emp.id, employee_name=emp.employee_name)
 
     prompt = (
-        f"📍 <b>Ишга келишни қайд этиш</b>\n\n"
-        f"Ҳурматли <b>{emp.employee_name}</b>, телефонингизда GPS (геолокация) ёқилганлигига ишонч ҳосил қилинг ва "
-        f"пастдаги <b>«📍 Геолокацияни юбориш»</b> тугмасини босинг."
+        f"Ҳурматли <b>{emp.employee_name}</b>!\n"
+        f"Илтимос, пастдаги «📍 Ҳозирги геолокацияни юбориш» тугмасини босинг:"
     )
     await message.answer(prompt, reply_markup=get_location_keyboard(), parse_mode="HTML")
 
 
-@router.message(F.text == "🔴 Ишдан кетдим (GPS)")
+@router.message(F.text.contains("Ишдан кетдим") | (F.text == "🔴 Ишдан кетдим (GPS)"))
 async def btn_checkout(message: types.Message, state: FSMContext):
     """Ишдан кетиш GPS сўрови."""
     emp = await get_authorized_employee(message.from_user.id)
@@ -392,14 +410,13 @@ async def btn_checkout(message: types.Message, state: FSMContext):
     await state.update_data(action="CHECKOUT", employee_id=emp.id, employee_name=emp.employee_name)
 
     prompt = (
-        f"🏁 <b>Иш сменасини якунлаш</b>\n\n"
-        f"Ҳурматли <b>{emp.employee_name}</b>, бугунги иш вақтингизни ҳисоблаш учун "
-        f"пастдаги <b>«📍 Геолокацияни юбориш»</b> тугмасини босинг."
+        f"Ҳурматли <b>{emp.employee_name}</b>!\n"
+        f"Илтимос, пастдаги «📍 Ҳозирги геолокацияни юбориш» тугмасини босинг:"
     )
     await message.answer(prompt, reply_markup=get_location_keyboard(), parse_mode="HTML")
 
 
-@router.message(F.text == "❌ Бекор қилиш")
+@router.message(F.text.contains("Бекор қилиш") | (F.text == "❌ Бекор қилиш"))
 async def btn_cancel(message: types.Message, state: FSMContext):
     """Амални бекор қилиш."""
     await state.clear()
@@ -434,10 +451,10 @@ async def handle_location(message: types.Message, state: FSMContext):
     now_local = datetime.now(UZ_TZ)
     now_utc = datetime.utcnow()
 
-    # Иш объектларини текшириш (Марказий дўкон ёки базадаги объектлар)
+    # Иш объектларини текшириш (Марказий дўкон: 39.748992, 64.432118)
     target_name = "Марказий дўкон (Бухоро)"
-    target_lat = getattr(settings, "STORE_LAT", 39.7747)
-    target_lon = getattr(settings, "STORE_LON", 64.4286)
+    target_lat = getattr(settings, "STORE_LAT", 39.748992)
+    target_lon = getattr(settings, "STORE_LON", 64.432118)
     allowed_radius = getattr(settings, "MAX_DISTANCE_METERS", 150.0)
 
     min_dist = calculate_haversine_distance(user_lat, user_lon, target_lat, target_lon)
@@ -457,17 +474,40 @@ async def handle_location(message: types.Message, state: FSMContext):
     except Exception as e:
         logger.warning(f"Workplaces tekshirishda xato: {e}")
 
-    within_geofence = min_dist <= (allowed_radius + 50)  # GPS ноаниқлиги учун +50м заҳира
-    status_label = "Ўз вақтида (GPS тасдиқланди)" if within_geofence else f"Объектдан ташқарида ({int(min_dist)}м)"
+    # Қатъий 150 метр текшируви
+    within_geofence = min_dist <= allowed_radius
+
+    # Агар объектдан ташқарида бўлса — дарҳол рад этилади ва базага ёзилмайди!
+    if not within_geofence:
+        if action == "CHECKIN":
+            fail_msg = (
+                f"❌ <b>Ишга келиш қайд этилмади!</b>\n\n"
+                f"Сиз иш жойида эмассиз.\n"
+                f"🏢 <b>Объект:</b> {target_name}\n"
+                f"📏 <b>Масофа:</b> {int(min_dist)} метр\n"
+                f"⭕️ <b>Рухсат этилган радиус:</b> {int(allowed_radius)} метр\n\n"
+                f"<i>Илтимос, дўкон ёки объект ҳудудига яқин келиб қайта уриниб кўринг!</i>"
+            )
+        else:
+            fail_msg = (
+                f"❌ <b>Ишдан кетиш қайд этилмади!</b>\n\n"
+                f"Сиз иш жойида эмассиз.\n"
+                f"🏢 <b>Объект:</b> {target_name}\n"
+                f"📏 <b>Масофа:</b> {int(min_dist)} метр\n"
+                f"⭕️ <b>Рухсат этилган радиус:</b> {int(allowed_radius)} метр\n\n"
+                f"<i>Илтимос, ишдан кетишни қайд этиш учун объект ҳудудида туриб тугмани босинг!</i>"
+            )
+        await message.answer(fail_msg, reply_markup=get_main_keyboard(), parse_mode="HTML")
+        return
 
     # Кечикиш текшируви
+    status_label = "Ўз вақтида (GPS тасдиқланди)"
     start_hour = getattr(settings, "store_work_start_hour", 9)
     if now_local.hour > start_hour or (now_local.hour == start_hour and now_local.minute > 15):
-        if within_geofence:
-            late_min = (now_local.hour - start_hour) * 60 + now_local.minute
-            status_label = f"Кечикди ({late_min} дақиқа)"
+        late_min = (now_local.hour - start_hour) * 60 + now_local.minute
+        status_label = f"Кечикди ({late_min} дақиқа)"
 
-    # Базага ва Backend API га сақлаш
+    # Базага ва Backend API га сақлаш (Масофа 150м ичида бўлганда)
     try:
         # 1. Backend API (Render / Local) га тўғридан-тўғри синхронизация
         payload = {
@@ -505,14 +545,28 @@ async def handle_location(message: types.Message, state: FSMContext):
                 await session.commit()
 
                 resp_text = (
-                    f"🟢 <b>Ишга келиш муваффақиятли қайд этилди!</b>\n\n"
+                    f"✅ <b>Ишга келиш муваффақиятли қайд этилди!</b>\n\n"
                     f"👤 <b>Ходим:</b> {emp.employee_name}\n"
-                    f"🏢 <b>Объект:</b> {target_name}\n"
+                    f"🏢 <b>Объект:</b> <b>{target_name}</b>\n"
                     f"⏰ <b>Вақт:</b> {now_local.strftime('%H:%M:%S')} ({now_local.strftime('%d.%m.%Y')})\n"
                     f"📏 <b>Масофа:</b> {int(min_dist)} метр\n"
                     f"📊 <b>Ҳолат:</b> {status_label}\n\n"
-                    f"<i>Давомад дашбордда автоматик янгиланди. Яхши иш куни тилаймиз!</i>"
+                    f"<i>Давомад бошқарув панели (Dashboard) га узатилди. Яхши иш куни тилаймиз!</i>"
                 )
+
+                # 3. Раҳбарият гуруҳига билдиришнома юбориш
+                mgmt_text = (
+                    f"📍 <b>Янги давомад қайди (GPS)</b>\n\n"
+                    f"👤 <b>Ходим:</b> {emp.employee_name}\n"
+                    f"🏢 <b>Объект:</b> {target_name}\n"
+                    f"⏰ <b>Вақти:</b> {now_local.strftime('%H:%M:%S')} ({now_local.strftime('%d.%m.%Y')})\n"
+                    f"📏 <b>Масофа:</b> {int(min_dist)} метр (Радиус: {int(allowed_radius)}м)\n"
+                    f"📊 <b>Ҳолат:</b> {status_label}\n"
+                    f"📱 <b>Манба:</b> 📱 Telegram\n\n"
+                    f"🌐 <a href='https://diyorgroup.uz/index.html#hr'>Дашбордда кўриш</a>"
+                )
+                asyncio.create_task(notify_management(message.bot, mgmt_text))
+
             else:
                 # CHECKOUT
                 stmt = select(WorkTimesheet).where(
@@ -551,12 +605,29 @@ async def handle_location(message: types.Message, state: FSMContext):
                     await session.commit()
 
                 resp_text = (
-                    f"🔴 <b>Иш сменаси муваффақиятли якунланди!</b>\n\n"
+                    f"🏁 <b>Иш сменаси муваффақиятли якунланди!</b>\n\n"
                     f"👤 <b>Ходим:</b> {emp.employee_name}\n"
+                    f"🏢 <b>Объект:</b> <b>{target_name}</b>\n"
                     f"⏰ <b>Кетиш вақти:</b> {now_local.strftime('%H:%M:%S')}\n"
                     f"⏱ <b>Ишланган вақт:</b> {hours} соат\n\n"
                     f"<i>Давомад дашбордда акс эттирилди. Ҳорманг!</i>"
                 )
+
+                # 3. Раҳбарият гуруҳига билдиришнома юбориш
+                mgmt_text = (
+                    f"🏁 <b>Иш якунланди (GPS)</b>\n\n"
+                    f"👤 <b>Ходим:</b> {emp.employee_name}\n"
+                    f"🏢 <b>Объект:</b> {target_name}\n"
+                    f"⏰ <b>Кетган вақти:</b> {now_local.strftime('%H:%M:%S')} ({now_local.strftime('%d.%m.%Y')})\n"
+                    f"⏱ <b>Ишланган вақт:</b> {hours} соат\n"
+                    f"📱 <b>Манба:</b> 📱 Telegram"
+                )
+                asyncio.create_task(notify_management(message.bot, mgmt_text))
+
+        await message.answer(resp_text, reply_markup=get_main_keyboard(), parse_mode="HTML")
+
+    except Exception as e:
+        logger.error(f"Давомадни сақлашда хатолик: {e}")
 
         await message.answer(resp_text, reply_markup=get_main_keyboard(), parse_mode="HTML")
 

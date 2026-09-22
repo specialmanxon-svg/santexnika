@@ -63,12 +63,13 @@ class Settings(BaseSettings):
     otp_secret: str = Field(default="JBSWY3DPEHPK3PXP")
     superuser_token: str = Field(default="diyor-admin-superuser-token")
     
-    # HR & GPS Store Location (Bukhara Store / Warehouse)
-    store_latitude: float = Field(default=39.7675, description="Bukhara store/warehouse latitude")
-    store_longitude: float = Field(default=64.4231, description="Bukhara store/warehouse longitude")
-    store_radius_meters: float = Field(default=100.0, description="Allowed check-in radius in meters")
+    # HR & GPS Store Location (Bukhara Central Store / Warehouse)
+    store_latitude: float = Field(default=39.748992, description="Bukhara central store latitude")
+    store_longitude: float = Field(default=64.432118, description="Bukhara central store longitude")
+    store_radius_meters: float = Field(default=150.0, description="Allowed check-in radius in meters")
     store_work_start_hour: int = Field(default=9, description="Work shift start hour (e.g. 9 for 09:00)")
     kpi_bonus_percent: float = Field(default=2.0, description="Default sales KPI bonus percent")
+    telegram_group_id: str = Field(default="", description="Telegram management group ID")
 
     # Aliases requested for Telegram bot GPS check
     @property
@@ -82,5 +83,9 @@ class Settings(BaseSettings):
     @property
     def MAX_DISTANCE_METERS(self) -> float:
         return self.store_radius_meters
+
+    @property
+    def TELEGRAM_GROUP_ID(self) -> str:
+        return self.telegram_group_id or self.telegram_alert_chat_id or self.telegram_ceo_chat_id or "5950380558"
 
 settings = Settings()
