@@ -17,7 +17,19 @@
                     }
                 }
             }
-        }
+        };
+
+        // Global HTML escaping utility
+        window.escapeHtml = function(text) {
+            if (text === null || text === undefined) return '';
+            return String(text)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#039;');
+        };
+        var escapeHtml = window.escapeHtml;
     </script>
     <style>
         [x-cloak] { display: none !important; }
@@ -1921,9 +1933,63 @@ function closeWorkplacesModal() {
     if (modal) modal.classList.add('hidden');
 }
 
-async function loadWorkplacesList() {
+function renderLocationsTable(items) {
+    const data = Array.isArray(items) ? items : workplacesList;
     const tbody = document.getElementById('workplaces-table-body');
     const badgeCount = document.getElementById('loc-table-count');
+
+    if (badgeCount && Array.isArray(data)) {
+        badgeCount.textContent = `${data.length} та объект`;
+    }
+
+    if (!tbody) return;
+
+    if (!data || !data.length) {
+        tbody.innerHTML = '<tr><td colspan="7" class="text-center py-6 text-gray-400">Ҳозирча рўйхатда бирорта ҳам объект йўқ. Юқоридаги форма орқали қўшинг.</td></tr>';
+        return;
+    }
+
+    tbody.innerHTML = data.map((loc, idx) => {
+        const isActive = Boolean(loc.is_active);
+        const activeBadge = isActive
+            ? '<span class="badge badge-green">Фаол</span>'
+            : '<span class="badge badge-red">Нофаол</span>';
+
+        const lat = (typeof loc.latitude === 'number') ? loc.latitude.toFixed(4) : loc.latitude;
+        const lon = (typeof loc.longitude === 'number') ? loc.longitude.toFixed(4) : loc.longitude;
+        const mapLink = `<a href="https://www.google.com/maps?q=${loc.latitude},${loc.longitude}" target="_blank" class="text-blue-600 hover:underline font-mono text-xs" title="Харитада кўриш">${lat}, ${lon} 📍</a>`;
+
+        return `
+            <tr class="hover:bg-gray-50 border-b transition">
+                <td class="text-gray-400 text-xs">${idx + 1}</td>
+                <td class="font-semibold text-gray-900 text-sm">
+                    <div class="flex items-center gap-1.5">
+                        <span>🏢</span>
+                        <span>${escapeHtml(loc.name)}</span>
+                    </div>
+                </td>
+                <td class="text-gray-600 text-xs">${escapeHtml(loc.address || '—')}</td>
+                <td>${mapLink}</td>
+                <td class="num font-bold text-gray-800 text-xs">${loc.radius_meters} метр</td>
+                <td>${activeBadge}</td>
+                <td class="text-right">
+                    <div class="inline-flex items-center gap-1.5">
+                        <button type="button" onclick="editWorkplace(${loc.id})" class="btn bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs py-1 px-2.5 rounded-lg flex items-center gap-1" title="Таҳрирлаш">
+                            <span>✏️</span> <span>Таҳрир</span>
+                        </button>
+                        <button type="button" onclick="deleteWorkplace(${loc.id})" class="btn bg-red-50 hover:bg-red-100 text-red-700 text-xs py-1 px-2.5 rounded-lg flex items-center gap-1" title="Ўчириш">
+                            <span>🗑</span>
+                        </button>
+                    </div>
+                </td>
+            </tr>
+        `;
+    }).join('');
+}
+window.renderLocationsTable = renderLocationsTable;
+
+async function loadWorkplacesList() {
+    const tbody = document.getElementById('workplaces-table-body');
     if (tbody) {
         tbody.innerHTML = '<tr><td colspan="7" class="text-center py-6 text-gray-400"><span class="loader align-middle mr-2"></span> Объектлар юкланмоқда...</td></tr>';
     }
@@ -1936,56 +2002,12 @@ async function loadWorkplacesList() {
         }
 
         workplacesList = data;
-        if (badgeCount) badgeCount.textContent = `${data.length} та объект`;
-
-        if (!data.length) {
-            if (tbody) tbody.innerHTML = '<tr><td colspan="7" class="text-center py-6 text-gray-400">Ҳозирча рўйхатда бирорта ҳам объект йўқ. Юқоридаги форма орқали қўшинг.</td></tr>';
-            return;
-        }
-
-        if (tbody) {
-            tbody.innerHTML = data.map((loc, idx) => {
-                const isActive = Boolean(loc.is_active);
-                const activeBadge = isActive
-                    ? '<span class="badge badge-green">Фаол</span>'
-                    : '<span class="badge badge-red">Нофаол</span>';
-
-                const mapLink = `<a href="https://www.google.com/maps?q=${loc.latitude},${loc.longitude}" target="_blank" class="text-blue-600 hover:underline font-mono text-xs" title="Харитада кўриш">${loc.latitude.toFixed(4)}, ${loc.longitude.toFixed(4)} 📍</a>`;
-
-                return `
-                    <tr class="hover:bg-gray-50 border-b transition">
-                        <td class="text-gray-400 text-xs">${idx + 1}</td>
-                        <td class="font-semibold text-gray-900 text-sm">
-                            <div class="flex items-center gap-1.5">
-                                <span>🏢</span>
-                                <span>${escapeHtml(loc.name)}</span>
-                            </div>
-                        </td>
-                        <td class="text-gray-600 text-xs">${escapeHtml(loc.address || '—')}</td>
-                        <td>${mapLink}</td>
-                        <td class="num font-bold text-gray-800 text-xs">${loc.radius_meters} метр</td>
-                        <td>${activeBadge}</td>
-                        <td class="text-right">
-                            <div class="inline-flex items-center gap-1.5">
-                                <button type="button" onclick="editWorkplace(${loc.id})" class="btn bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs py-1 px-2.5 rounded-lg flex items-center gap-1" title="Таҳрирлаш">
-                                    <span>✏️</span> <span>Таҳрир</span>
-                                </button>
-                                <button type="button" onclick="deleteWorkplace(${loc.id})" class="btn bg-red-50 hover:bg-red-100 text-red-700 text-xs py-1 px-2.5 rounded-lg flex items-center gap-1" title="Ўчириш">
-                                    <span>🗑</span>
-                                </button>
-                            </div>
-                        </td>
-                    </tr>
-                `;
-            }).join('');
-        }
+        renderLocationsTable(data);
     } catch (e) {
         console.error('loadWorkplacesList error:', e);
         if (tbody) tbody.innerHTML = `<tr><td colspan="7" class="text-center py-6 text-red-500">❌ Хатолик: ${e.message}</td></tr>`;
     }
 }
-window.renderLocationsTable = loadWorkplacesList;
-function renderLocationsTable() { return loadWorkplacesList(); }
 
 function getCurrentLocationForWorkplace() {
     if (!navigator.geolocation) {
