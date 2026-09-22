@@ -5,7 +5,7 @@ from .debt import DebtRegistry
 from .audit import AuditEvent
 from .social import PartnerProfile
 from .inventory import InventoryItem
-from .hr import WorkTimesheet, Workplace
+from .hr import WorkTimesheet, Workplace, AuthorizedEmployee
 from .campaign import TelegramCampaign
 from .crm import CrmLead, CrmDeal, CrmTask, CrmPipelineType, CrmStageType
 
@@ -24,6 +24,7 @@ __all__ = [
     "InventoryItem",
     "WorkTimesheet",
     "Workplace",
+    "AuthorizedEmployee",
     "TelegramCampaign",
     "CrmLead",
     "CrmDeal",

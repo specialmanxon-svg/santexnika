@@ -1,9 +1,10 @@
 """SQLAlchemy model for Employee Timesheets — Ходимлар давомади."""
 from datetime import datetime
 from uuid import UUID, uuid4
-from sqlalchemy import String, Float, Integer, DateTime
+from sqlalchemy import String, Float, Integer, BigInteger, DateTime
 from sqlalchemy.orm import Mapped, mapped_column
 from models.base import Base
+
 
 
 class WorkTimesheet(Base):
@@ -41,4 +42,21 @@ class Workplace(Base):
     is_active: Mapped[int] = mapped_column(Integer, default=1)  # 1: актив, 0: нофаол/тугатилган
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class AuthorizedEmployee(Base):
+    """Telegram ботга телефон орқали боғланган тасдиқланган ходимлар."""
+    __tablename__ = "authorized_employees"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    employee_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    phone_number: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
+    telegram_id: Mapped[int | None] = mapped_column(BigInteger, index=True, unique=True, nullable=True)
+    telegram_username: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    moysklad_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    role: Mapped[str] = mapped_column(String(100), default="Ходим")
+    is_active: Mapped[int] = mapped_column(Integer, default=1)  # 1: актив, 0: блокланган
+    authorized_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
 

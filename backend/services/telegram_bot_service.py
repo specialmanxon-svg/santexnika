@@ -1,9 +1,15 @@
 """Telegram Bot Service for Employee GPS Attendance (Diyor Group).
 
-Handles GPS location check-in and check-out using aiogram 3, validates
-distance to store using Haversine formula (100m radius), and syncs
-automatically with Diyor Group Dashboard.
+Features:
+1. Secure Phone Number Authorization (/start + request_contact=True).
+   Matches contact against MoySklad employees and authorized_employees table.
+2. Two-button persistent main menu for authorized employees:
+   - [ 🟢 Ишга келдим (GPS) ]
+   - [ 🔴 Ишдан кетдим (GPS) ]
+3. Multi-workplace/geofence GPS location validation (Haversine formula).
+4. Direct real-time synchronization with Diyor Group Dashboard.
 """
+import re
 import math
 import asyncio
 import structlog
@@ -15,45 +21,68 @@ from aiogram.filters import Command
 from aiogram.types import (
     ReplyKeyboardMarkup,
     KeyboardButton,
-    ReplyKeyboardRemove,
-    InlineKeyboardMarkup,
-    InlineKeyboardButton
+    ReplyKeyboardRemove
 )
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
+from sqlalchemy import select
 
 from config import settings
 from core.database import AsyncSessionLocal
+from models.hr import AuthorizedEmployee
 from services.hr_service import hr_service, calculate_haversine_distance
+from services.moysklad_client import MoySkladClient
 
 logger = structlog.get_logger(__name__)
 
 UZ_TZ = timezone(timedelta(hours=5))
 
-# FSM States
+
+def normalize_phone_digits(raw: str) -> str:
+    """Normalize phone number to numeric digits e.g. 998901234567."""
+    digits = re.sub(r"\D", "", raw or "")
+    if len(digits) == 9:
+        digits = "998" + digits
+    elif len(digits) == 10 and digits.startswith("8"):
+        digits = "998" + digits[1:]
+    return digits
+
+
+# --- FSM States ---
 class AttendanceStates(StatesGroup):
     waiting_for_location = State()
 
+
 router = Router()
 
-# Keyboards
+
+# --- Keyboards ---
+def get_auth_keyboard() -> ReplyKeyboardMarkup:
+    """Keyboard prompting employee to share phone contact for authorization."""
+    return ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text="📱 Телефон рақамни юбориш", request_contact=True)]
+        ],
+        resize_keyboard=True,
+        one_time_keyboard=True,
+        input_field_placeholder="«Телефон рақамни юбориш» тугмасини босинг..."
+    )
+
+
 def get_main_keyboard() -> ReplyKeyboardMarkup:
-    """Main employee menu keyboard."""
+    """Persistent 2-button menu for verified employees."""
     return ReplyKeyboardMarkup(
         keyboard=[
             [
                 KeyboardButton(text="🟢 Ишга келдим (GPS)"),
                 KeyboardButton(text="🔴 Ишдан кетдим (GPS)")
-            ],
-            [
-                KeyboardButton(text="📊 Менинг давомадим"),
-                KeyboardButton(text="ℹ️ Дўкон ҳақида")
             ]
         ],
         resize_keyboard=True,
-        input_field_placeholder="Буйруқни танланг..."
+        input_field_placeholder="Иш ҳолатини танланг..."
     )
+
 
 def get_location_keyboard() -> ReplyKeyboardMarkup:
     """Keyboard requesting live GPS location."""
@@ -72,48 +101,221 @@ def get_location_keyboard() -> ReplyKeyboardMarkup:
     )
 
 
-# --- Handlers ---
+# --- Helper Database Functions ---
+async def get_authorized_employee(tg_id: int) -> Optional[AuthorizedEmployee]:
+    """Retrieve active authorized employee by Telegram ID."""
+    async with AsyncSessionLocal() as session:
+        stmt = select(AuthorizedEmployee).where(
+            AuthorizedEmployee.telegram_id == tg_id,
+            AuthorizedEmployee.is_active == 1
+        )
+        res = await session.execute(stmt)
+        return res.scalar_one_or_none()
+
+
+async def find_employee_in_moysklad_or_db(digits: str) -> Optional[Dict[str, Any]]:
+    """
+    Search for employee by last 9 digits of phone number in MoySklad and local DB.
+    """
+    if len(digits) < 9:
+        return None
+    phone_9 = digits[-9:]
+
+    # 1. Check local authorized_employees table
+    async with AsyncSessionLocal() as session:
+        stmt = select(AuthorizedEmployee).where(AuthorizedEmployee.is_active == 1)
+        res = await session.execute(stmt)
+        for emp in res.scalars().all():
+            emp_d = normalize_phone_digits(emp.phone_number)
+            if emp_d and emp_d[-9:] == phone_9:
+                return {
+                    "id": emp.id,
+                    "name": emp.employee_name,
+                    "phone": emp.phone_number,
+                    "moysklad_id": emp.moysklad_id,
+                    "source": "local_db"
+                }
+
+    # 2. Check MoySklad API
+    try:
+        ms_client = MoySkladClient()
+        resp = await ms_client._request("GET", "/entity/employee", params={"limit": 100})
+        rows = resp.get("rows", [])
+        for r in rows:
+            if not r.get("archived", False):
+                ms_phone = r.get("phone")
+                if ms_phone:
+                    emp_d = normalize_phone_digits(ms_phone)
+                    if emp_d and emp_d[-9:] == phone_9:
+                        return {
+                            "name": r.get("name", "Ходим"),
+                            "phone": ms_phone,
+                            "moysklad_id": r.get("id"),
+                            "source": "moysklad"
+                        }
+    except Exception as e:
+        logger.warning("moysklad_employee_lookup_failed", error=str(e))
+
+    return None
+
+
+# --- Bot Handlers ---
 
 @router.message(Command("start"))
 async def cmd_start(message: types.Message, state: FSMContext):
-    """Start command: Greet employee and display attendance keyboard."""
+    """
+    Handle /start:
+    - If user is already authorized: greet and show 2 main GPS buttons.
+    - If user is not authorized: request phone number via request_contact=True.
+    """
     await state.clear()
-    user_name = message.from_user.full_name or "Ҳурматли ходим"
-    welcome_text = (
-        f"👋 <b>Ассалому алайкум, {user_name}!</b>\n\n"
-        f"🏢 <b>Diyor Group</b> — Ходимлар давоматини назорат қилиш ботига хуш келибсиз.\n\n"
-        f"📍 <b>Қоида:</b> Ишга келиш ва кетишни қайд этиш учун сиз Бухоро марказий омбори "
-        f"ёки савдо залидан <b>{int(settings.MAX_DISTANCE_METERS)} метр</b> радиус ичида бўлишингиз керак.\n\n"
-        f"Иш кунини бошлаш учун <b>«🟢 Ишга келдим (GPS)»</b> тугмасини босинг."
+    emp = await get_authorized_employee(message.from_user.id)
+
+    if emp:
+        welcome_text = (
+            f"👋 <b>Ассалому алайкум, {emp.employee_name}!</b>\n\n"
+            f"🏢 <b>Diyor Group</b> — Сиз тизимда муваффақиятли тасдиқлангансиз.\n\n"
+            f"Ишга келиш ва кетишингизни қайд этиш учун қуйидаги тугмалардан фойдаланинг:"
+        )
+        await message.answer(welcome_text, reply_markup=get_main_keyboard(), parse_mode="HTML")
+    else:
+        auth_prompt = (
+            f"👋 <b>Ассалому алайкум!</b>\n\n"
+            f"🏢 <b>Diyor Group</b> — Ходимлар давоматини назорат қилиш ботига хуш келибсиз.\n\n"
+            f"⚠️ <b>Хавфсизлик текшируви:</b>\n"
+            f"Ботдан фақат компаниянинг рўйхатдан ўтган ходимлари фойдаланиши мумкин. "
+            f"Шахсингизни тасдиқлаш учун илтимос, пастдаги <b>«📱 Телефон рақамни юбориш»</b> тугмасини босинг."
+        )
+        await message.answer(auth_prompt, reply_markup=get_auth_keyboard(), parse_mode="HTML")
+
+
+@router.message(F.contact)
+async def handle_contact(message: types.Message):
+    """
+    Handle shared phone contact:
+    - Verifies contact belongs to the user.
+    - Matches phone number with MoySklad or local database.
+    - Links telegram_id to employee.
+    """
+    contact = message.contact
+
+    # Security check: ensure user didn't forward someone else's contact
+    if contact.user_id and contact.user_id != message.from_user.id:
+        await message.answer(
+            "❌ <b>Хатолик:</b> Илтимос, фақат ўзингизнинг телефон рақамингизни юборинг!",
+            reply_markup=get_auth_keyboard(),
+            parse_mode="HTML"
+        )
+        return
+
+    raw_phone = contact.phone_number
+    digits = normalize_phone_digits(raw_phone)
+
+    # Match with employees
+    match = await find_employee_in_moysklad_or_db(digits)
+
+    if not match:
+        logger.warning("unauthorized_contact_attempt", phone=digits, user=message.from_user.full_name)
+        reject_text = (
+            f"❌ <b>Сиз ходимлар рўйхатида топилмадингиз!</b>\n\n"
+            f"📱 Сизнинг рақамингиз: <code>+{digits}</code>\n\n"
+            f"⚠️ Ушбу телефон рақами компания ходимлари базасида рўйхатга олинмаган. "
+            f"Агар сиз Diyor Group ходими бўлсангиз, илтимос маъмуриятга ёки раҳбарингизга "
+            f"мурожаат қилиб рақамингизни базага киритинг ва қайта уриниб кўринг."
+        )
+        await message.answer(reject_text, reply_markup=get_auth_keyboard(), parse_mode="HTML")
+        return
+
+    # Link/bind telegram_id to employee in authorized_employees
+    emp_name = match["name"]
+    moysklad_id = match.get("moysklad_id")
+
+    async with AsyncSessionLocal() as session:
+        # Check if record already exists for this phone or tg_id
+        stmt = select(AuthorizedEmployee).where(
+            (AuthorizedEmployee.telegram_id == message.from_user.id) |
+            (AuthorizedEmployee.phone_number == f"+{digits}")
+        )
+        res = await session.execute(stmt)
+        emp_record = res.scalar_one_or_none()
+
+        if emp_record:
+            emp_record.employee_name = emp_name
+            emp_record.phone_number = f"+{digits}"
+            emp_record.telegram_id = message.from_user.id
+            emp_record.telegram_username = message.from_user.username
+            emp_record.moysklad_id = moysklad_id
+            emp_record.is_active = 1
+            emp_record.authorized_at = datetime.utcnow()
+        else:
+            emp_record = AuthorizedEmployee(
+                employee_name=emp_name,
+                phone_number=f"+{digits}",
+                telegram_id=message.from_user.id,
+                telegram_username=message.from_user.username,
+                moysklad_id=moysklad_id,
+                role="Ходим",
+                is_active=1,
+                authorized_at=datetime.utcnow()
+            )
+            session.add(emp_record)
+
+        await session.commit()
+
+    logger.info("employee_telegram_authorized", user=emp_name, phone=digits, tg_id=message.from_user.id)
+
+    approved_text = (
+        f"✅ <b>Тасдиқланди: {emp_name}!</b>\n\n"
+        f"Сиз Diyor Group ходимлари рўйхатидан муваффақиятли ўтдингиз.\n"
+        f"Энди ишга келиш ва кетишингизни GPS орқали белгилашингиз мумкин. 💼"
     )
-    await message.answer(welcome_text, reply_markup=get_main_keyboard(), parse_mode="HTML")
+    await message.answer(approved_text, reply_markup=get_main_keyboard(), parse_mode="HTML")
 
 
 @router.message(F.text == "🟢 Ишга келдим (GPS)")
 async def btn_checkin_clicked(message: types.Message, state: FSMContext):
-    """Prompt employee to send live GPS coordinates for check-in."""
+    """Prompt verified employee to send live GPS coordinates for check-in."""
+    emp = await get_authorized_employee(message.from_user.id)
+    if not emp:
+        await message.answer(
+            "⚠️ <b>Сиз ҳали авторизациядан ўтмагансиз!</b>\n"
+            "Илтимос, аввал телефон рақамингизни юбориб, шахсингизни тасдиқланг.",
+            reply_markup=get_auth_keyboard(),
+            parse_mode="HTML"
+        )
+        return
+
     await state.set_state(AttendanceStates.waiting_for_location)
-    await state.update_data(action="CHECKIN")
+    await state.update_data(action="CHECKIN", employee_id=emp.id, employee_name=emp.employee_name)
 
     prompt_text = (
         f"📍 <b>Ишга келишни қайд этиш (GPS текширув)</b>\n\n"
-        f"Илтимос, телефонингиз GPS тизими ёқилганлигига ишонч ҳосил қилинг ва "
-        f"қуйидаги <b>«📍 Геолокацияни юбориш»</b> тугмасини босинг.\n\n"
-        f"<i>(Чеклов: Дўкондан максимум {int(settings.MAX_DISTANCE_METERS)} метр масофа)</i>"
+        f"Ҳурматли <b>{emp.employee_name}</b>, телефонингиз геолокацияси (GPS) ёқилганлигига ишонч ҳосил қилинг ва "
+        f"қуйидаги <b>«📍 Геолокацияни юбориш»</b> тугмасини босинг."
     )
     await message.answer(prompt_text, reply_markup=get_location_keyboard(), parse_mode="HTML")
 
 
 @router.message(F.text == "🔴 Ишдан кетдим (GPS)")
 async def btn_checkout_clicked(message: types.Message, state: FSMContext):
-    """Prompt employee to send live GPS coordinates for check-out."""
+    """Prompt verified employee to send live GPS coordinates for check-out."""
+    emp = await get_authorized_employee(message.from_user.id)
+    if not emp:
+        await message.answer(
+            "⚠️ <b>Сиз ҳали авторизациядан ўтмагансиз!</b>\n"
+            "Илтимос, аввал телефон рақамингизни юбориб, шахсингизни тасдиқланг.",
+            reply_markup=get_auth_keyboard(),
+            parse_mode="HTML"
+        )
+        return
+
     await state.set_state(AttendanceStates.waiting_for_location)
-    await state.update_data(action="CHECKOUT")
+    await state.update_data(action="CHECKOUT", employee_id=emp.id, employee_name=emp.employee_name)
 
     prompt_text = (
         f"🏁 <b>Иш сменасини якунлаш (GPS текширув)</b>\n\n"
-        f"Ишдан кетишни қайд этиш ва бугун ишланган соатларни автоматик ҳисоблаш учун "
-        f"қуйидаги <b>«📍 Геолокацияни юбориш»</b> тугмасини босинг."
+        f"Ҳурматли <b>{emp.employee_name}</b>, ишдан кетишни қайд этиш ва бугун ишланган вақтни "
+        f"ҳисоблаш учун қуйидаги <b>«📍 Геолокацияни юбориш»</b> тугмасини босинг."
     )
     await message.answer(prompt_text, reply_markup=get_location_keyboard(), parse_mode="HTML")
 
@@ -122,59 +324,29 @@ async def btn_checkout_clicked(message: types.Message, state: FSMContext):
 async def btn_cancel(message: types.Message, state: FSMContext):
     """Cancel current operation and return to main menu."""
     await state.clear()
-    await message.answer("❌ Амал бекор қилинди.", reply_markup=get_main_keyboard())
-
-
-@router.message(F.text == "ℹ️ Дўкон ҳақида")
-async def btn_store_info(message: types.Message):
-    """Display store GPS info and working rules."""
-    map_url = f"https://www.google.com/maps?q={settings.STORE_LAT},{settings.STORE_LON}"
-    info_text = (
-        f"🏢 <b>Diyor Group — Марказий дўкон ва омбор</b>\n\n"
-        f"📍 <b>Шаҳар:</b> Бухоро\n"
-        f"🌐 <b>Координаталар:</b> <code>{settings.STORE_LAT}, {settings.STORE_LON}</code>\n"
-        f"📏 <b>Рухсат этилган радиус:</b> {int(settings.MAX_DISTANCE_METERS)} метр\n"
-        f"⏰ <b>Иш бошланиш вақти:</b> {settings.store_work_start_hour}:00 (Бухоро вақти билан)\n\n"
-        f"🗺 <a href='{map_url}'>Google Харитада дўконни кўриш</a>"
-    )
-    await message.answer(info_text, reply_markup=get_main_keyboard(), parse_mode="HTML", disable_web_page_preview=True)
-
-
-@router.message(F.text == "📊 Менинг давомадим")
-async def btn_my_attendance(message: types.Message):
-    """Show personal attendance records for this employee."""
-    emp_id = message.from_user.id
-    async with AsyncSessionLocal() as session:
-        records = await hr_service.get_timesheets(session, employee_id=emp_id)
-
-    if not records:
-        await message.answer(
-            "📋 <b>Сизнинг давомад маълумотларингиз ҳали топилмади.</b>\n"
-            "Ишга келганингизда «🟢 Ишга келдим (GPS)» тугмасини босинг.",
-            reply_markup=get_main_keyboard(),
-            parse_mode="HTML"
-        )
-        return
-
-    lines = ["📋 <b>Сизнинг сўнгги давомад қайдларингиз:</b>\n"]
-    for r in records[:7]:
-        c_in = r.get("checkin_time", "—")
-        c_out = r.get("checkout_time", "—")
-        st = r.get("status", "—")
-        hours = r.get("total_hours", "—")
-        lines.append(f"📅 <b>Келди:</b> {c_in} | <b>Кетди:</b> {c_out}")
-        lines.append(f"⏱ <b>Ишланди:</b> {hours} | <b>Ҳолат:</b> {st}\n")
-
-    await message.answer("\n".join(lines), reply_markup=get_main_keyboard(), parse_mode="HTML")
+    emp = await get_authorized_employee(message.from_user.id)
+    kb = get_main_keyboard() if emp else get_auth_keyboard()
+    await message.answer("❌ Амал бекор қилинди.", reply_markup=kb)
 
 
 @router.message(F.location)
 async def handle_location(message: types.Message, state: FSMContext):
     """
-    Handle live GPS coordinates sent by employee.
+    Handle live GPS coordinates sent by verified employee.
     Validates against all registered workplaces/sites using hr_service,
     and updates work_timesheets in database for real-time dashboard sync.
     """
+    emp = await get_authorized_employee(message.from_user.id)
+    if not emp:
+        await state.clear()
+        await message.answer(
+            "⚠️ <b>Сиз ҳали авторизациядан ўтмагансиз!</b>\n"
+            "Илтимос, аввал телефон рақамингизни юбориб шахсингизни тасдиқланг.",
+            reply_markup=get_auth_keyboard(),
+            parse_mode="HTML"
+        )
+        return
+
     current_data = await state.get_data()
     action = current_data.get("action", "CHECKIN")
     await state.clear()
@@ -182,8 +354,8 @@ async def handle_location(message: types.Message, state: FSMContext):
     lat = message.location.latitude
     lon = message.location.longitude
 
-    employee_id = message.from_user.id
-    employee_name = message.from_user.full_name or message.from_user.username or f"Ходим #{employee_id}"
+    employee_id = emp.id
+    employee_name = emp.employee_name
     now_local = datetime.now(UZ_TZ)
     time_str = now_local.strftime("%d.%m.%Y %H:%M")
 
@@ -197,7 +369,7 @@ async def handle_location(message: types.Message, state: FSMContext):
                     employee_name=employee_name,
                     latitude=lat,
                     longitude=lon,
-                    device_info=f"Telegram Bot ({message.from_user.id})"
+                    device_info=f"Telegram Bot (+{normalize_phone_digits(emp.phone_number)})"
                 )
 
             att_status = res.get("attendance_status", "Ўз вақтида (GPS тасдиқланди)")
@@ -281,9 +453,7 @@ async def handle_location(message: types.Message, state: FSMContext):
             await message.answer(f"❌ Хатолик юз берди: {str(e)}", reply_markup=get_main_keyboard())
 
 
-
 # --- Bot Lifecycle & Dispatcher ---
-
 def create_bot_and_dispatcher():
     """Create and configure aiogram Bot and Dispatcher instances."""
     token = settings.telegram_bot_token
@@ -291,17 +461,3 @@ def create_bot_and_dispatcher():
     dp = Dispatcher(storage=MemoryStorage())
     dp.include_router(router)
     return bot, dp
-
-
-async def run_bot_polling():
-    """Run bot in standalone long-polling mode."""
-    bot, dp = create_bot_and_dispatcher()
-    logger.info("telegram_bot_polling_started", bot_token_prefix=settings.telegram_bot_token[:10])
-    try:
-        await dp.start_polling(bot, allowed_updates=["message", "callback_query"])
-    finally:
-        await bot.session.close()
-
-
-if __name__ == "__main__":
-    asyncio.run(run_bot_polling())

@@ -9,7 +9,11 @@ from models.product import MdmProduct
 from models.inventory import InventoryItem
 from services.moysklad_client import MoySkladClient
 from services.moysklad_sync import sync_moysklad_stock_and_products
-from workers.order_tasks import process_order_paid
+
+try:
+    from workers.order_tasks import process_order_paid
+except Exception:
+    process_order_paid = None
 
 logger = structlog.get_logger()
 router = APIRouter(prefix="/moysklad", tags=["MoySklad (Складской учет и MDM)"])
@@ -124,7 +128,10 @@ async def handle_order_paid(
     for event in events:
         order_meta = event.get("meta", {})
         order_id = order_meta.get("href", "").split("/")[-1]
-        if order_id:
-            process_order_paid.delay(order_id)
+        if order_id and process_order_paid is not None:
+            try:
+                process_order_paid.delay(order_id)
+            except Exception as e:
+                logger.warning("celery_delay_skipped", error=str(e), order_id=order_id)
             
     return {"status": "accepted", "processed_events": len(events)}
