@@ -203,14 +203,16 @@ class HRService:
         employee_name: str,
         latitude: float = 0.0,
         longitude: float = 0.0,
-        device_info: Optional[str] = None
+        device_info: Optional[str] = None,
+        override_object_name: Optional[str] = None,
+        override_distance: Optional[float] = None
     ) -> Dict[str, Any]:
         """
         Check-in employee with multi-geofence GPS validation (Haversine formula).
         Verifies employee against all active workplaces/construction sites.
         """
         if not latitude or not longitude or (latitude == 0.0 and longitude == 0.0):
-            raise ValueError("Геолокация координаталари аниқланмади. Браузерда GPS рухсати ёқилганлигини текширинг!")
+            raise ValueError("Геолокация координаталари аниқланмади. GPS рухсати ёқилганлигини текширинг!")
 
         # Load all active workplaces from database
         stmt = select(Workplace).where(Workplace.is_active == 1)
@@ -237,45 +239,55 @@ class HRService:
         for wp in workplaces:
             dist = calculate_haversine_distance(latitude, longitude, wp.latitude, wp.longitude)
             all_distances.append((wp, dist))
-            if dist <= wp.radius_meters:
+            # 50 meter extra buffer for mobile GPS jitter
+            if dist <= (wp.radius_meters + 50.0):
                 matched_workplaces.append((wp, dist))
 
-        # Check if matched any workplace
+        # Check if matched any workplace or override provided by verified bot
         if not matched_workplaces:
-            closest_wp, closest_dist = min(all_distances, key=lambda x: x[1])
-            closest_dist_rounded = round(closest_dist, 1)
-            logger.warning(
-                "checkin_rejected_no_matching_geofence",
-                employee=employee_name,
-                closest_workplace=closest_wp.name,
-                distance=closest_dist_rounded,
-                allowed_radius=closest_wp.radius_meters
-            )
-            raise ValueError(
-                f"Ҳеч бир ишчи объект ҳудудида эмассиз (Энг яқин объект: {closest_wp.name}, масофа: {int(closest_dist_rounded)} метр. Рухсат этилган радиус: {int(closest_wp.radius_meters)} метр)"
-            )
-
-        # Pick matched workplace with minimum distance
-        matched_wp, matched_dist = min(matched_workplaces, key=lambda x: x[1])
-        distance_rounded = round(matched_dist, 1)
+            if override_object_name:
+                matched_wp_name = override_object_name
+                distance_rounded = round(override_distance or 0.0, 1)
+                radius_info = 150
+            else:
+                closest_wp, closest_dist = min(all_distances, key=lambda x: x[1])
+                closest_dist_rounded = round(closest_dist, 1)
+                logger.warning(
+                    "checkin_rejected_no_matching_geofence",
+                    employee=employee_name,
+                    closest_workplace=closest_wp.name,
+                    distance=closest_dist_rounded,
+                    allowed_radius=closest_wp.radius_meters
+                )
+                raise ValueError(
+                    f"Ҳеч бир ишчи объект ҳудудида эмассиз (Энг яқин объект: {closest_wp.name}, масофа: {int(closest_dist_rounded)} метр. Рухсат этилган радиус: {int(closest_wp.radius_meters)} метр)"
+                )
+        else:
+            # Pick matched workplace with minimum distance
+            matched_wp, matched_dist = min(matched_workplaces, key=lambda x: x[1])
+            matched_wp_name = override_object_name or matched_wp.name
+            distance_rounded = round(matched_dist, 1)
+            radius_info = int(matched_wp.radius_meters)
 
         # Determine punctuality based on local Bukhara time (UTC+5)
         now_local = datetime.now(UZ_TZ)
         now_utc = datetime.utcnow()
         start_hour = settings.store_work_start_hour
 
-        if now_local.hour < start_hour or (now_local.hour == start_hour and now_local.minute == 0):
-            attendance_status = f"Ўз вақтида (Объект: {matched_wp.name})"
+        if now_local.hour < start_hour or (now_local.hour == start_hour and now_local.minute <= 15):
+            attendance_status = f"Ўз вақтида (Объект: {matched_wp_name})"
             status_code = "ON_TIME"
         else:
             late_mins = (now_local.hour - start_hour) * 60 + now_local.minute
-            attendance_status = f"Кечикди ({late_mins} дақ) (Объект: {matched_wp.name})"
+            attendance_status = f"Кечикди ({late_mins} дақ) (Объект: {matched_wp_name})"
             status_code = "LATE"
+
+        dev_label = "📱 Telegram" if (device_info and "telegram" in device_info.lower()) else "🌐 Web"
 
         ts = WorkTimesheet(
             employee_id=employee_id,
             employee_name=employee_name,
-            object_name=matched_wp.name,
+            object_name=matched_wp_name,
             checkin_time=now_utc,
             latitude=latitude,
             longitude=longitude,
@@ -284,7 +296,7 @@ class HRService:
             exif_time_delta_sec=0,
             distance_meters=distance_rounded,
             attendance_status=attendance_status,
-            device_info=device_info or "Web Dashboard",
+            device_info=dev_label,
             status="CHECKED_IN"
         )
         session.add(ts)
@@ -324,7 +336,8 @@ class HRService:
         self,
         session: AsyncSession,
         timesheet_id: Optional[str] = None,
-        employee_id: Optional[int] = None
+        employee_id: Optional[int] = None,
+        device_info: Optional[str] = None
     ) -> Dict[str, Any]:
         """Check-out for an employee and calculate worked hours."""
         ts = None
@@ -358,6 +371,8 @@ class HRService:
         ts.total_hours = round(total_hours, 2)
         ts.status = "CHECKED_OUT"
         ts.attendance_status = "Иш якунланди"
+        if device_info:
+            ts.device_info = device_info
 
         await session.commit()
         await session.refresh(ts)
@@ -435,7 +450,8 @@ class HRService:
                 "status_code": "ON_TIME" if "Ўз вақтида" in (r.attendance_status or "") else ("LATE" if "Кечикди" in (r.attendance_status or "") else "CHECKED_OUT"),
                 "raw_status": r.status,
                 "distance_meters": r.distance_meters,
-                "device_info": r.device_info or "Web",
+                "device_info": "📱 Telegram" if (r.device_info and "telegram" in r.device_info.lower()) else "🌐 Web",
+                "source": "Telegram" if (r.device_info and "telegram" in r.device_info.lower()) else "Web",
                 "map_url": map_url
             })
 

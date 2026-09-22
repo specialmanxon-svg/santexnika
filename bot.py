@@ -81,6 +81,32 @@ def calculate_haversine_distance(lat1: float, lon1: float, lat2: float, lon2: fl
     return R * c
 
 
+async def sync_to_backend_api(payload: dict):
+    """Ходимнинг ботдан юборган давомадини тўғридан-тўғри Backend API га узатиш."""
+    targets = []
+    custom = os.getenv("BACKEND_API_URL")
+    if custom and custom.strip():
+        targets.append(custom.strip().rstrip("/"))
+    targets.extend([
+        "https://santexnika.onrender.com/api/v1",
+        "http://127.0.0.1:8000/api/v1"
+    ])
+    try:
+        import httpx
+        for base in targets:
+            endpoint = f"{base}/hr/check-in" if payload.get("action") == "check_in" else f"{base}/hr/check-out"
+            try:
+                async with httpx.AsyncClient(timeout=4.0) as client:
+                    res = await client.post(endpoint, json=payload)
+                    if res.status_code in (200, 201):
+                        logger.info(f"✅ Backend API ({base}) га давомад узатилди")
+                        break
+            except Exception as ex:
+                logger.debug(f"Backend API ({base}) уланиш синови: {ex}")
+    except Exception as e:
+        logger.warning(f"sync_to_backend_api хатоси: {e}")
+
+
 # ═══════════════ KLAVIATURALAR ═══════════════
 
 def get_auth_keyboard() -> ReplyKeyboardMarkup:
@@ -441,8 +467,24 @@ async def handle_location(message: types.Message, state: FSMContext):
             late_min = (now_local.hour - start_hour) * 60 + now_local.minute
             status_label = f"Кечикди ({late_min} дақиқа)"
 
-    # Базага сақлаш
+    # Базага ва Backend API га сақлаш
     try:
+        # 1. Backend API (Render / Local) га тўғридан-тўғри синхронизация
+        payload = {
+            "employee_id": emp.id,
+            "employee_name": emp.employee_name,
+            "action": "check_in" if action == "CHECKIN" else "check_out",
+            "latitude": user_lat,
+            "longitude": user_lon,
+            "source": "Telegram",
+            "device_info": "📱 Telegram",
+            "object_name": target_name,
+            "distance_meters": round(min_dist, 1),
+            "timestamp": datetime.now().isoformat()
+        }
+        asyncio.create_task(sync_to_backend_api(payload))
+
+        # 2. Локал базага тўғридан-тўғри ёзиш
         async with AsyncSessionLocal() as session:
             today_start = datetime(now_utc.year, now_utc.month, now_utc.day)
 
@@ -456,7 +498,8 @@ async def handle_location(message: types.Message, state: FSMContext):
                     latitude=user_lat,
                     longitude=user_lon,
                     distance_meters=round(min_dist, 1),
-                    attendance_status=status_label
+                    attendance_status=status_label,
+                    device_info="📱 Telegram"
                 )
                 session.add(ts)
                 await session.commit()
@@ -484,6 +527,7 @@ async def handle_location(message: types.Message, state: FSMContext):
                 if active_ts:
                     active_ts.checkout_time = now_utc
                     active_ts.status = "CHECKED_OUT"
+                    active_ts.device_info = "📱 Telegram"
                     delta = (now_utc - active_ts.checkin_time).total_seconds() / 3600.0
                     hours = round(max(0.1, delta), 2)
                     active_ts.total_hours = hours
@@ -500,7 +544,8 @@ async def handle_location(message: types.Message, state: FSMContext):
                         latitude=user_lat,
                         longitude=user_lon,
                         distance_meters=round(min_dist, 1),
-                        attendance_status="Иш якунланди"
+                        attendance_status="Иш якунланди",
+                        device_info="📱 Telegram"
                     )
                     session.add(ts)
                     await session.commit()

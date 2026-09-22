@@ -49,6 +49,33 @@ def normalize_phone_digits(raw: str) -> str:
     return digits
 
 
+async def sync_to_backend_api(payload: dict):
+    """Ходимнинг ботдан юборган давомадини тўғридан-тўғри Backend API га узатиш."""
+    import os
+    targets = []
+    custom = os.getenv("BACKEND_API_URL")
+    if custom and custom.strip():
+        targets.append(custom.strip().rstrip("/"))
+    targets.extend([
+        "https://santexnika.onrender.com/api/v1",
+        "http://127.0.0.1:8000/api/v1"
+    ])
+    try:
+        import httpx
+        for base in targets:
+            endpoint = f"{base}/hr/check-in" if payload.get("action") == "check_in" else f"{base}/hr/check-out"
+            try:
+                async with httpx.AsyncClient(timeout=4.0) as client:
+                    res = await client.post(endpoint, json=payload)
+                    if res.status_code in (200, 201):
+                        logger.info("attendance_synced_to_backend", base=base, status=res.status_code)
+                        break
+            except Exception as ex:
+                logger.debug("backend_sync_failed", base=base, error=str(ex))
+    except Exception as e:
+        logger.warning("sync_to_backend_api_error", error=str(e))
+
+
 # --- FSM States ---
 class AttendanceStates(StatesGroup):
     waiting_for_location = State()
@@ -369,13 +396,28 @@ async def handle_location(message: types.Message, state: FSMContext):
                     employee_name=employee_name,
                     latitude=lat,
                     longitude=lon,
-                    device_info=f"Telegram Bot (+{normalize_phone_digits(emp.phone_number)})"
+                    device_info="📱 Telegram"
                 )
 
             att_status = res.get("attendance_status", "Ўз вақтида (GPS тасдиқланди)")
             obj_name = res.get("object_name", "Асосий дўкон")
             dist_val = res.get("distance_meters", 0.0)
             status_icon = "✅" if "Ўз вақтида" in att_status else "⚠️"
+
+            # Backend API га синхронизация
+            payload = {
+                "employee_id": employee_id,
+                "employee_name": employee_name,
+                "action": "check_in",
+                "latitude": lat,
+                "longitude": lon,
+                "source": "Telegram",
+                "device_info": "📱 Telegram",
+                "object_name": obj_name,
+                "distance_meters": dist_val,
+                "timestamp": datetime.now().isoformat()
+            }
+            asyncio.create_task(sync_to_backend_api(payload))
 
             success_msg = (
                 f"✅ <b>Ишга келиш муваффақиятли қайд этилди!</b>\n\n"
@@ -415,7 +457,7 @@ async def handle_location(message: types.Message, state: FSMContext):
                     if d < min_d:
                         min_d = d
                         closest_loc = loc
-                    if d <= loc["radius_meters"]:
+                    if d <= (loc["radius_meters"] + 50.0):
                         matched_loc = loc
                         break
 
@@ -431,11 +473,27 @@ async def handle_location(message: types.Message, state: FSMContext):
 
                 res = await hr_service.checkout(
                     session=session,
-                    employee_id=employee_id
+                    employee_id=employee_id,
+                    device_info="📱 Telegram"
                 )
 
             total_h = res.get("total_hours", 0.0)
             obj_title = matched_loc['name'] if matched_loc else "Дўкон/Объект"
+
+            # Backend API га синхронизация
+            payload = {
+                "employee_id": employee_id,
+                "employee_name": employee_name,
+                "action": "check_out",
+                "latitude": lat,
+                "longitude": lon,
+                "source": "Telegram",
+                "device_info": "📱 Telegram",
+                "object_name": obj_title,
+                "distance_meters": round(min_d, 1) if min_d != float('inf') else 0.0,
+                "timestamp": datetime.now().isoformat()
+            }
+            asyncio.create_task(sync_to_backend_api(payload))
             checkout_msg = (
                 f"🏁 <b>Иш сменаси якунланди!</b>\n\n"
                 f"👤 <b>Ходим:</b> {employee_name}\n"

@@ -2419,22 +2419,40 @@ async function doCheckout(id) {
     }
 }
 
-async function loadTimesheet() {
+// ═══════════════ REAL-TIME HR POLLING (15s) ═══════════════
+let hrPollingTimer = null;
+
+function startHRAutoPolling() {
+    if (hrPollingTimer) return;
+    hrPollingTimer = setInterval(() => {
+        const activeTab = DateFilter.getActiveTabKey();
+        if (activeTab === 'hr' && !document.hidden) {
+            loadTimesheet(true);
+        }
+    }, 15000);
+}
+window.startHRAutoPolling = startHRAutoPolling;
+
+async function loadTimesheet(isBackground = false) {
     const refreshIcon = document.getElementById('ts-refresh-icon');
-    if (refreshIcon) refreshIcon.textContent = '⏳';
+    if (refreshIcon && !isBackground) refreshIcon.textContent = '⏳';
 
     const tbodyTS = document.getElementById('timesheet-table');
     const tbodyKPI = document.getElementById('kpi-table');
 
-    tbodyTS.innerHTML = '<tr><td colspan="7" class="text-center text-gray-400 py-8"><span class="loader align-middle mr-2"></span> Давомад юкланмоқда...</td></tr>';
-    tbodyKPI.innerHTML = '<tr><td colspan="5" class="text-center text-gray-400 py-8"><span class="loader align-middle mr-2"></span> Сотувчилар KPI ҳисобланмоқда...</td></tr>';
+    if (!isBackground) {
+        if (tbodyTS) tbodyTS.innerHTML = '<tr><td colspan="7" class="text-center text-gray-400 py-8"><span class="loader align-middle mr-2"></span> Давомад юкланмоқда...</td></tr>';
+        if (tbodyKPI) tbodyKPI.innerHTML = '<tr><td colspan="5" class="text-center text-gray-400 py-8"><span class="loader align-middle mr-2"></span> Сотувчилар KPI ҳисобланмоқда...</td></tr>';
+    }
 
     try {
         const q = DateFilter.getQueryParams();
         const data = await apiFetch(`/hr/overview?${q}`);
         if (!data) {
-            tbodyTS.innerHTML = '<tr><td colspan="7" class="text-center text-red-500 py-8">❌ Давомад маълумотларини юклашда хатолик</td></tr>';
-            tbodyKPI.innerHTML = '<tr><td colspan="5" class="text-center text-red-500 py-8">❌ KPI маълумотларини юклашда хатолик</td></tr>';
+            if (!isBackground) {
+                if (tbodyTS) tbodyTS.innerHTML = '<tr><td colspan="7" class="text-center text-red-500 py-8">❌ Давомад маълумотларини юклашда хатолик</td></tr>';
+                if (tbodyKPI) tbodyKPI.innerHTML = '<tr><td colspan="5" class="text-center text-red-500 py-8">❌ KPI маълумотларини юклашда хатолик</td></tr>';
+            }
             return;
         }
 
@@ -2447,96 +2465,113 @@ async function loadTimesheet() {
         const badgeCount = document.getElementById('timesheet-count-badge');
         if (badgeCount) badgeCount.textContent = `${timesheets.length} та ёзув`;
 
-        if (!timesheets.length) {
-            tbodyTS.innerHTML = '<tr><td colspan="7" class="text-center text-gray-400 py-8">Бугун ҳозирча ҳеч ким ишга келишни қайд этмаган</td></tr>';
-        } else {
-            tbodyTS.innerHTML = timesheets.map((t, i) => {
-                let statusBadge = 'badge-blue';
-                let statusIcon = 'ℹ️';
-                const st = t.status || '';
+        if (tbodyTS) {
+            if (!timesheets.length) {
+                tbodyTS.innerHTML = '<tr><td colspan="7" class="text-center text-gray-400 py-8">Бугун ҳозирча ҳеч ким ишга келишни қайд этмаган</td></tr>';
+            } else {
+                tbodyTS.innerHTML = timesheets.map((t, i) => {
+                    let statusBadge = 'badge-blue';
+                    let statusIcon = 'ℹ️';
+                    const st = t.status || '';
 
-                if (st.includes('Ўз вақтида')) {
-                    statusBadge = 'badge-green';
-                    statusIcon = '✅';
-                } else if (st.includes('Кечикди')) {
-                    statusBadge = 'badge-yellow';
-                    statusIcon = '⚠️';
-                } else if (t.raw_status === 'CHECKED_OUT' || st.includes('якунланди')) {
-                    statusBadge = 'badge-blue';
-                    statusIcon = '🏁';
-                }
+                    if (st.includes('Ўз вақтида')) {
+                        statusBadge = 'badge-green';
+                        statusIcon = '✅';
+                    } else if (st.includes('Кечикди')) {
+                        statusBadge = 'badge-yellow';
+                        statusIcon = '⚠️';
+                    } else if (t.raw_status === 'CHECKED_OUT' || st.includes('якунланди')) {
+                        statusBadge = 'badge-blue';
+                        statusIcon = '🏁';
+                    }
 
-                const checkinStr = t.checkin_time || '—';
-                const checkoutStr = t.checkout_time || '—';
-                const hoursStr = typeof t.total_hours === 'number' ? `${t.total_hours.toFixed(1)} соат` : (t.total_hours || 'Ишланмоқда');
+                    const checkinStr = t.checkin_time || '—';
+                    const checkoutStr = t.checkout_time || '—';
+                    const hoursStr = typeof t.total_hours === 'number' ? `${t.total_hours.toFixed(1)} соат` : (t.total_hours || 'Ишланмоқда');
 
-                const isWorking = t.raw_status === 'CHECKED_IN';
-                const checkoutAction = isWorking
-                    ? `<button class="btn btn-primary text-xs py-1 px-2.5 flex items-center gap-1" onclick="doCheckout('${t.id}')"><span>🚪</span><span>Кетди</span></button>`
-                    : '';
+                    const isWorking = t.raw_status === 'CHECKED_IN';
+                    const checkoutAction = isWorking
+                        ? `<button class="btn btn-primary text-xs py-1 px-2.5 flex items-center gap-1" onclick="doCheckout('${t.id}')"><span>🚪</span><span>Кетди</span></button>`
+                        : '';
 
-                const mapAction = t.map_url
-                    ? `<a href="${t.map_url}" target="_blank" class="btn bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs py-1 px-2 flex items-center gap-1" title="Google харитада GPS нуқтани кўриш"><span>📍</span><span>Карта</span></a>`
-                    : '';
+                    const mapAction = t.map_url
+                        ? `<a href="${t.map_url}" target="_blank" class="btn bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs py-1 px-2 flex items-center gap-1" title="Google харитада GPS нуқтани кўриш"><span>📍</span><span>Карта</span></a>`
+                        : '';
 
-                return `
-                    <tr>
-                        <td class="text-gray-400">${i + 1}</td>
-                        <td>
-                            <div class="font-semibold text-gray-900 flex items-center gap-1.5">
-                                <span>${t.employee_name || '—'}</span>
-                                ${(t.device_info || '').includes('Telegram') ? '<span class="text-[10px] bg-sky-100 text-sky-800 font-bold px-1.5 py-0.5 rounded">📱 Telegram</span>' : '<span class="text-[10px] bg-gray-100 text-gray-600 font-bold px-1.5 py-0.5 rounded">💻 Web</span>'}
-                            </div>
-                            <div class="text-xs text-indigo-700 font-medium">🏢 ${escapeHtml(t.object_name || 'Асосий дўкон')} <span class="text-gray-400 font-mono font-normal">• ID: ${t.employee_id} ${t.distance_meters != null ? '• ' + t.distance_meters + 'м' : ''}</span></div>
-                        </td>
-                        <td class="num font-medium text-gray-700">${checkinStr}</td>
-                        <td class="num font-medium text-gray-700">${checkoutStr}</td>
-                        <td class="num font-semibold text-gray-900">${hoursStr}</td>
-                        <td><span class="badge ${statusBadge}">${statusIcon} ${st}</span></td>
-                        <td>
-                            <div class="flex items-center gap-1.5">
-                                ${checkoutAction}
-                                ${mapAction}
-                            </div>
-                        </td>
-                    </tr>
-                `;
-            }).join('');
+                    const isTg = (t.device_info || t.source || '').toLowerCase().includes('telegram');
+                    const sourceBadge = isTg
+                        ? '<span class="text-[10px] bg-sky-100 text-sky-800 font-bold px-1.5 py-0.5 rounded flex items-center gap-0.5" title="Telegram бот орқали қайд этилган">📱 Telegram</span>'
+                        : '<span class="text-[10px] bg-gray-100 text-gray-700 font-bold px-1.5 py-0.5 rounded flex items-center gap-0.5" title="Веб-браузер орқали қайд этилган">🌐 Web</span>';
+
+                    return `
+                        <tr class="hover:bg-gray-50/70 transition">
+                            <td class="text-gray-400">${i + 1}</td>
+                            <td>
+                                <div class="font-semibold text-gray-900 flex items-center gap-1.5">
+                                    <span>${escapeHtml(t.employee_name || '—')}</span>
+                                    ${sourceBadge}
+                                </div>
+                                <div class="text-xs text-indigo-700 font-medium">🏢 ${escapeHtml(t.object_name || 'Асосий дўкон')} <span class="text-gray-400 font-mono font-normal">• ID: ${t.employee_id} ${t.distance_meters != null ? '• ' + t.distance_meters + 'м' : ''}</span></div>
+                            </td>
+                            <td class="num font-medium text-gray-700">${checkinStr}</td>
+                            <td class="num font-medium text-gray-700">${checkoutStr}</td>
+                            <td class="num font-semibold text-gray-900">${hoursStr}</td>
+                            <td><span class="badge ${statusBadge}">${statusIcon} ${st}</span></td>
+                            <td>
+                                <div class="flex items-center gap-1.5">
+                                    ${checkoutAction}
+                                    ${mapAction}
+                                </div>
+                            </td>
+                        </tr>
+                    `;
+                }).join('');
+            }
         }
 
         // 2. Render Sales KPI Cards & Table
         const kpiList = data.sales_kpi || [];
         const summary = data.kpi_summary || {};
 
-        document.getElementById('kpi-total-sales').textContent = summary.total_sales_formatted || fmt(kpiList.reduce((s, x) => s + (x.total_sales || 0), 0)) + ' сўм';
-        document.getElementById('kpi-total-deals').textContent = fmt(kpiList.reduce((s, x) => s + (x.deals_count || 0), 0));
-        document.getElementById('kpi-total-bonus').textContent = summary.total_bonus_formatted || fmt(kpiList.reduce((s, x) => s + (x.bonus || 0), 0)) + ' сўм';
+        const elTotSales = document.getElementById('kpi-total-sales');
+        if (elTotSales) elTotSales.textContent = summary.total_sales_formatted || fmt(kpiList.reduce((s, x) => s + (x.total_sales || 0), 0)) + ' сўм';
+        const elTotDeals = document.getElementById('kpi-total-deals');
+        if (elTotDeals) elTotDeals.textContent = fmt(kpiList.reduce((s, x) => s + (x.deals_count || 0), 0));
+        const elTotBonus = document.getElementById('kpi-total-bonus');
+        if (elTotBonus) elTotBonus.textContent = summary.total_bonus_formatted || fmt(kpiList.reduce((s, x) => s + (x.bonus || 0), 0)) + ' сўм';
         if (summary.period_label) {
-            document.getElementById('kpi-period-label').textContent = summary.period_label;
+            const elPeriod = document.getElementById('kpi-period-label');
+            if (elPeriod) elPeriod.textContent = summary.period_label;
         }
 
-        if (!kpiList.length) {
-            tbodyKPI.innerHTML = '<tr><td colspan="5" class="text-center text-gray-400 py-8">МойСклад базасида савдолар топилмади</td></tr>';
-        } else {
-            tbodyKPI.innerHTML = kpiList.map((s, i) => `
-                <tr>
-                    <td class="text-gray-400 font-bold">${i + 1}</td>
-                    <td class="font-bold text-gray-900">${s.salesperson || s.name || '—'}</td>
-                    <td class="num font-bold text-gray-900">${s.formatted_sales || fmt(s.total_sales || 0) + ' сўм'}</td>
-                    <td class="num font-semibold">${s.deals_count || 0} та</td>
-                    <td class="num text-green-700 font-bold bg-green-50/50">${s.formatted_bonus || fmt(s.bonus || 0) + ' сўм'} <span class="text-xs text-green-600 font-normal">(${s.bonus_rate || '2%'})</span></td>
-                </tr>
-            `).join('');
+        if (tbodyKPI) {
+            if (!kpiList.length) {
+                tbodyKPI.innerHTML = '<tr><td colspan="5" class="text-center text-gray-400 py-8">МойСклад базасида савдолар топилмади</td></tr>';
+            } else {
+                tbodyKPI.innerHTML = kpiList.map((s, i) => `
+                    <tr class="hover:bg-gray-50/70 transition">
+                        <td class="text-gray-400 font-bold">${i + 1}</td>
+                        <td class="font-bold text-gray-900">${escapeHtml(s.salesperson || s.name || '—')}</td>
+                        <td class="num font-bold text-gray-900">${s.formatted_sales || fmt(s.total_sales || 0) + ' сўм'}</td>
+                        <td class="num font-semibold">${s.deals_count || 0} та</td>
+                        <td class="num text-green-700 font-bold bg-green-50/50">${s.formatted_bonus || fmt(s.bonus || 0) + ' сўм'} <span class="text-xs text-green-600 font-normal">(${s.bonus_rate || '2%'})</span></td>
+                    </tr>
+                `).join('');
+            }
         }
 
     } catch (err) {
         console.error('loadTimesheet error:', err);
-        tbodyTS.innerHTML = '<tr><td colspan="7" class="text-center text-red-500 py-8">Маълумотларни юклашда хатолик</td></tr>';
-        tbodyKPI.innerHTML = '<tr><td colspan="5" class="text-center text-red-500 py-8">Маълумотларни юклашда хатолик</td></tr>';
+        if (!isBackground) {
+            if (tbodyTS) tbodyTS.innerHTML = '<tr><td colspan="7" class="text-center text-red-500 py-8">Маълумотларни юклашда хатолик</td></tr>';
+            if (tbodyKPI) tbodyKPI.innerHTML = '<tr><td colspan="5" class="text-center text-red-500 py-8">Маълумотларни юклашда хатолик</td></tr>';
+        }
     } finally {
         if (refreshIcon) refreshIcon.textContent = '📋';
     }
 }
+window.loadTimesheet = loadTimesheet;
+window.loadHROverview = loadTimesheet;
 
 // ═══════════════ TAB 4: REFERRALS & PARTNERS (5% BONUS) ═══════════════
 let currentOfferModalData = {
@@ -2844,6 +2879,7 @@ DateFilter.init();
 checkApiStatus();
 loadBrandsList();
 restoreInitialTab();
+startHRAutoPolling();
 </script>
 </body>
 </html>

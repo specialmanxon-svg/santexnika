@@ -13,14 +13,21 @@ router = APIRouter(prefix="/hr", tags=["Ходимлар ва KPI"])
 class CheckinRequest(BaseModel):
     employee_id: int = Field(..., description="Ходим ID рақами")
     employee_name: str = Field(..., description="Ходим исм-шарифи")
-    latitude: float = Field(..., description="Браузер GPS кенглиги (latitude)")
-    longitude: float = Field(..., description="Браузер GPS узунлиги (longitude)")
-    device_info: Optional[str] = Field(default="Web Browser", description="Қурилма ёки браузер маълумоти")
+    latitude: float = Field(..., description="GPS кенглиги (latitude)")
+    longitude: float = Field(..., description="GPS узунлиги (longitude)")
+    device_info: Optional[str] = Field(default="Web", description="Қурилма ёки браузер маълумоти")
+    source: Optional[str] = Field(default=None, description="Манба: Telegram ёки Web")
+    action: Optional[str] = Field(default="check_in", description="Амал тури: check_in ёки check_out")
+    object_name: Optional[str] = Field(default=None, description="Объект номи")
+    distance_meters: Optional[float] = Field(default=None, description="Масофа (метр)")
+    timestamp: Optional[str] = Field(default=None, description="Вақт тамғаси")
 
 
 class CheckoutRequest(BaseModel):
     timesheet_id: Optional[str] = Field(default=None, description="Давомад ёзуви UUID идентификатори")
     employee_id: Optional[int] = Field(default=None, description="Ходим ID рақами")
+    device_info: Optional[str] = Field(default=None, description="Қурилма ёки манба")
+    source: Optional[str] = Field(default=None, description="Манба")
 
 
 class LocationCreateRequest(BaseModel):
@@ -46,18 +53,30 @@ class LocationUpdateRequest(BaseModel):
 @router.post("/checkin", summary="GPS орқали ишга келишни қайд этиш (муқобил)")
 async def checkin(request: CheckinRequest, session: AsyncSession = Depends(get_db)):
     """
-    Ходимнинг ишга келишини браузер GPS координатаси ва Haversine формуласи орқали текшириш.
-    Агар масофа <= 100 метр бўлса: қабул қилинади (Ўз вақтида / Кечикди).
-    Агар масофа > 100 метр бўлса: 400 хатолик ва масофа кўрсатилиб рад этилади.
+    Ходимнинг ишга келишини браузер/бот GPS координатаси ва Haversine формуласи орқали текшириш.
+    Агар масофа <= радиус бўлса: қабул қилинади (Ўз вақтида / Кечикди).
     """
     try:
+        src = request.source or request.device_info or "Web"
+        dev_info = "📱 Telegram" if "telegram" in src.lower() else "🌐 Web"
+
+        # Агар амал check_out бўлса, checkout га йўналтириш
+        if request.action in ("check_out", "checkout"):
+            return await hr_service.checkout(
+                session=session,
+                employee_id=request.employee_id,
+                device_info=dev_info
+            )
+
         res = await hr_service.checkin(
             session=session,
             employee_id=request.employee_id,
             employee_name=request.employee_name,
             latitude=request.latitude,
             longitude=request.longitude,
-            device_info=request.device_info
+            device_info=dev_info,
+            override_object_name=request.object_name,
+            override_distance=request.distance_meters
         )
         return res
     except ValueError as ve:
@@ -82,8 +101,13 @@ async def checkout(
     """
     ts_id = timesheet_id or (request.timesheet_id if request else None)
     emp_id = request.employee_id if request else None
+    dev_info = None
+    if request:
+        src = request.source or request.device_info
+        if src:
+            dev_info = "📱 Telegram" if "telegram" in src.lower() else "🌐 Web"
     try:
-        return await hr_service.checkout(session, timesheet_id=ts_id, employee_id=emp_id)
+        return await hr_service.checkout(session, timesheet_id=ts_id, employee_id=emp_id, device_info=dev_info)
     except ValueError as ve:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(ve))
     except Exception as e:
