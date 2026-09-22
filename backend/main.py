@@ -12,6 +12,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, FileResponse, RedirectResponse
+from fastapi.staticfiles import StaticFiles
 
 from config import settings
 from core.database import engine, Base
@@ -79,12 +80,23 @@ async def lifespan(app: FastAPI):
     # Start background demand monitor task
     monitor_task = asyncio.create_task(_demand_hard_lock_monitor())
 
+    # Start task reminder background worker (Топшириқлар муддат назорати)
+    from workers.task_worker import start_task_reminder_loop
+    task_reminder_task = asyncio.create_task(start_task_reminder_loop())
+
     yield
 
     logger.info("application_shutting_down")
     monitor_task.cancel()
+    task_reminder_task.cancel()
     try:
         await monitor_task
+    except asyncio.CancelledError:
+        pass
+    except Exception:
+        pass
+    try:
+        await task_reminder_task
     except asyncio.CancelledError:
         pass
     except Exception:
@@ -198,6 +210,12 @@ async def health_check():
     _ms_status_cache["ts"] = now
     _ms_status_cache["data"] = res
     return res
+
+
+STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
+STATIC_DIR.mkdir(parents=True, exist_ok=True)
+(STATIC_DIR / "uploads" / "voice_tasks").mkdir(parents=True, exist_ok=True)
+app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 
 @app.get("/")

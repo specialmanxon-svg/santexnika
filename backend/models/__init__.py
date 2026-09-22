@@ -8,6 +8,7 @@ from .inventory import InventoryItem
 from .hr import WorkTimesheet, Workplace, AuthorizedEmployee
 from .campaign import TelegramCampaign
 from .crm import CrmLead, CrmDeal, CrmTask, CrmPipelineType, CrmStageType
+from .task import Task
 
 # Aliases for backwards compatibility
 ProductMDM = MdmProduct
@@ -31,4 +32,5 @@ __all__ = [
     "CrmTask",
     "CrmPipelineType",
     "CrmStageType",
+    "Task",
 ]

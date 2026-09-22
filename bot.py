@@ -35,7 +35,10 @@ from aiogram.filters import Command
 from aiogram.types import (
     ReplyKeyboardMarkup,
     KeyboardButton,
-    ReplyKeyboardRemove
+    ReplyKeyboardRemove,
+    InlineKeyboardMarkup,
+    InlineKeyboardButton,
+    CallbackQuery,
 )
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
@@ -45,6 +48,7 @@ from sqlalchemy import select
 from config import settings
 from core.database import AsyncSessionLocal, engine, Base
 from models.hr import WorkTimesheet, AuthorizedEmployee, Workplace
+from models.task import Task
 from services.moysklad_client import MoySkladClient
 
 # Setup logging
@@ -186,6 +190,9 @@ def get_location_keyboard() -> ReplyKeyboardMarkup:
 class AttendanceStates(StatesGroup):
     waiting_for_location = State()
 
+
+class TaskStates(StatesGroup):
+    waiting_for_response = State()
 
 # ═══════════════ BAZA VA MOYSKLAD QIDIRUVLARI ═══════════════
 
@@ -676,6 +683,236 @@ async def handle_location(message: types.Message, state: FSMContext):
             f"⚠️ Маълумотни сақлашда техник хатолик юз берди: {e}",
             reply_markup=get_main_keyboard()
         )
+
+
+# ═══════════════ ТОПШИРИҚЛАР БЎЛИМИ (TASK MANAGER) ═══════════════
+
+@router.message(Command("tasks"))
+async def cmd_tasks(message: types.Message):
+    """Ходимнинг фаол топшириқлари рўйхати."""
+    emp = await get_authorized_employee(message.from_user.id)
+    if not emp:
+        await message.answer(
+            "⚠️ <b>Сиз ҳали авторизациядан ўтмагансиз!</b>\n"
+            "Илтимос, аввал телефон рақамингизни юбориб шахсингизни тасдиқланг.",
+            reply_markup=get_auth_keyboard(),
+            parse_mode="HTML"
+        )
+        return
+
+    async with AsyncSessionLocal() as session:
+        stmt = select(Task).where(
+            Task.assigned_telegram_id == message.from_user.id,
+            Task.status.in_(["new", "in_progress"]),
+        ).order_by(Task.created_at.desc())
+        result = await session.execute(stmt)
+        tasks = result.scalars().all()
+
+    if not tasks:
+        await message.answer(
+            "📋 <b>Сизда ҳозирча фаол топшириқлар мавжуд эмас.</b>",
+            reply_markup=get_main_keyboard(),
+            parse_mode="HTML"
+        )
+        return
+
+    text_lines = ["📋 <b>Сизнинг фаол топшириқларингиз:</b>\n"]
+    for t in tasks:
+        status_icon = {"new": "🆕", "in_progress": "🔄"}.get(t.status, "📋")
+        deadline_str = "—"
+        if t.deadline:
+            dl = t.deadline
+            if dl.tzinfo is None:
+                dl = dl.replace(tzinfo=timezone.utc).astimezone(UZ_TZ)
+            deadline_str = dl.strftime("%d.%m.%Y %H:%M")
+        voice_badge = " 🎙 (Овозли)" if t.voice_url else ""
+        text_lines.append(
+            f"{status_icon} <b>#{t.id}</b> — {t.title}{voice_badge}\n"
+            f"   ⏰ Муддат: {deadline_str}\n"
+        )
+
+    # Inline тугмалар — ҳар бир топшириққа жавоб бериш
+    buttons = []
+    for t in tasks[:10]:  # Максимум 10 та
+        buttons.append([
+            InlineKeyboardButton(
+                text=f"✍️ #{t.id} га жавоб",
+                callback_data=f"task_respond_{t.id}",
+            )
+        ])
+
+    keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
+
+    await message.answer(
+        "\n".join(text_lines),
+        reply_markup=keyboard,
+        parse_mode="HTML"
+    )
+
+
+@router.callback_query(F.data.startswith("task_accept_"))
+async def handle_task_accept(callback: CallbackQuery):
+    """Ходим топшириқни қабул қилди — статусни in_progress га ўзгартириш."""
+    await callback.answer("✅ Қабул қилинди!")
+
+    task_id_str = callback.data.replace("task_accept_", "")
+    try:
+        task_id = int(task_id_str)
+    except ValueError:
+        return
+
+    async with AsyncSessionLocal() as session:
+        task = await session.get(Task, task_id)
+        if not task:
+            await callback.message.answer("❌ Топшириқ топилмади.")
+            return
+
+        if task.status == "new":
+            task.status = "in_progress"
+            task.updated_at = datetime.utcnow()
+            await session.commit()
+
+        deadline_str = "—"
+        if task.deadline:
+            dl = task.deadline
+            if dl.tzinfo is None:
+                dl = dl.replace(tzinfo=timezone.utc).astimezone(UZ_TZ)
+            deadline_str = dl.strftime("%d.%m.%Y %H:%M")
+
+        # Янгиланган хабар
+        text = (
+            f"📋 <b>ТОПШИРИҚ #{task.id}</b> — ✅ Қабул қилинди\n\n"
+            f"📌 <b>Мавзу:</b> {task.title}\n"
+            f"📝 <b>Тафсилот:</b> {task.description or '—'}\n"
+            f"⏰ <b>Муддат:</b> {deadline_str}\n"
+            f"📊 <b>Статус:</b> 🔄 Жараёнда\n"
+        )
+
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="✍️ Жавоб/Ҳисобот юбориш", callback_data=f"task_respond_{task.id}")]
+        ])
+
+        try:
+            await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
+        except Exception:
+            await callback.message.answer(text, reply_markup=keyboard, parse_mode="HTML")
+
+    # Раҳбарга хабар
+    try:
+        ceo_chat_id = os.getenv("TELEGRAM_CEO_CHAT_ID") or "5950380558"
+        notify_text = (
+            f"✅ <b>Топшириқ #{task_id} қабул қилинди</b>\n"
+            f"👤 Ижрочи: {task.assigned_name}\n"
+            f"📌 Мавзу: {task.title}"
+        )
+        await callback.bot.send_message(chat_id=ceo_chat_id, text=notify_text, parse_mode="HTML")
+    except Exception as e:
+        logger.error(f"Раҳбарга accept хабари юборишда хатолик: {e}")
+
+
+@router.callback_query(F.data.startswith("task_respond_"))
+async def handle_task_respond(callback: CallbackQuery, state: FSMContext):
+    """Ходим жавоб/ҳисобот юбормоқчи — FSM га ўтказиш."""
+    await callback.answer()
+
+    task_id_str = callback.data.replace("task_respond_", "")
+    try:
+        task_id = int(task_id_str)
+    except ValueError:
+        return
+
+    async with AsyncSessionLocal() as session:
+        task = await session.get(Task, task_id)
+        if not task:
+            await callback.message.answer("❌ Топшириқ топилмади.")
+            return
+
+    await state.set_state(TaskStates.waiting_for_response)
+    await state.update_data(task_id=task_id)
+
+    await callback.message.answer(
+        f"✍️ <b>Топшириқ #{task_id}</b> учун жавоб/ҳисоботингизни ёзинг:\n\n"
+        f"📌 <b>Мавзу:</b> {task.title}\n\n"
+        f"Қуйидаги хабарда жавобингизни матн кўринишида юборинг:",
+        parse_mode="HTML"
+    )
+
+
+@router.message(TaskStates.waiting_for_response)
+async def handle_task_response_text(message: types.Message, state: FSMContext):
+    """Ходим жавоб матнини юборди — базага ёзиш ва раҳбарга хабар бериш."""
+    data = await state.get_data()
+    task_id = data.get("task_id")
+    await state.clear()
+
+    if not task_id:
+        await message.answer("❌ Топшириқ аниқланмади. Илтимос, қайта уриниб кўринг.", reply_markup=get_main_keyboard())
+        return
+
+    response_text = message.text or ""
+    if not response_text.strip():
+        await message.answer("⚠️ Жавоб матни бўш. Илтимос, ҳисоботингизни ёзинг.", reply_markup=get_main_keyboard())
+        return
+
+    async with AsyncSessionLocal() as session:
+        task = await session.get(Task, task_id)
+        if not task:
+            await message.answer("❌ Топшириқ топилмади.", reply_markup=get_main_keyboard())
+            return
+
+        task.employee_response = response_text
+        if task.status == "new":
+            task.status = "in_progress"
+        task.updated_at = datetime.utcnow()
+        await session.commit()
+
+    await message.answer(
+        f"✅ <b>Жавобингиз қабул қилинди!</b>\n\n"
+        f"📋 <b>Топшириқ:</b> #{task_id} — {task.title}\n"
+        f"💬 <b>Жавоб:</b> {response_text[:200]}{'...' if len(response_text) > 200 else ''}\n\n"
+        f"Маълумот раҳбарга ва дашбордга узатилди.",
+        reply_markup=get_main_keyboard(),
+        parse_mode="HTML"
+    )
+
+    # Раҳбарга хабар
+    try:
+        ceo_chat_id = os.getenv("TELEGRAM_CEO_CHAT_ID") or "5950380558"
+
+        deadline_str = "—"
+        if task.deadline:
+            dl = task.deadline
+            if dl.tzinfo is None:
+                dl = dl.replace(tzinfo=timezone.utc).astimezone(UZ_TZ)
+            deadline_str = dl.strftime("%d.%m.%Y %H:%M")
+
+        notify_text = (
+            f"📩 <b>ХОДИМ ЖАВОБИ — Топшириқ #{task_id}</b>\n\n"
+            f"👤 <b>Ижрочи:</b> {task.assigned_name}\n"
+            f"📌 <b>Мавзу:</b> {task.title}\n"
+            f"⏰ <b>Муддат:</b> {deadline_str}\n"
+            f"💬 <b>Жавоб:</b>\n{response_text}\n"
+        )
+        await message.bot.send_message(chat_id=ceo_chat_id, text=notify_text, parse_mode="HTML")
+    except Exception as e:
+        logger.error(f"Раҳбарга жавоб хабари юборишда хатолик: {e}")
+
+    # Кузатувчига хабар
+    if task.observer_telegram_id:
+        try:
+            observer_text = (
+                f"📩 <b>НАЗОРАТ: Ходим жавоб юборди</b>\n\n"
+                f"📋 <b>Топшириқ:</b> #{task_id} — {task.title}\n"
+                f"👤 <b>Ижрочи:</b> {task.assigned_name}\n"
+                f"💬 <b>Жавоб:</b>\n{response_text}\n"
+            )
+            await message.bot.send_message(
+                chat_id=task.observer_telegram_id,
+                text=observer_text,
+                parse_mode="HTML"
+            )
+        except Exception as e:
+            logger.error(f"Кузатувчига жавоб хабари юборишда хатолик: {e}")
 
 
 # ═══════════════ ASOSIY ISHGA TUSHIRISH FUNKSIYASI ═══════════════

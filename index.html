@@ -88,6 +88,7 @@
         <button class="tab-btn px-4 py-3 text-sm whitespace-nowrap" onclick="switchTab('finance')">💰 Пул Айланмаси</button>
         <button class="tab-btn px-4 py-3 text-sm whitespace-nowrap" onclick="switchTab('hr')">👷 Ходимлар / KPI</button>
         <button class="tab-btn px-4 py-3 text-sm whitespace-nowrap" onclick="switchTab('partners')">🤝 Ҳамкорлик 5%</button>
+        <button class="tab-btn px-4 py-3 text-sm whitespace-nowrap" onclick="switchTab('tasks')">📋 Топшириқлар</button>
     </div>
 </nav>
 
@@ -686,7 +687,147 @@
             </div>
         </div>
     </section>
+
+    <!-- ═══════════════ TAB 5: ТОПШИРИҚЛАР ВА НАЗОРАТ (Task Manager) ═══════════════ -->
+    <section id="tab5" class="tab-content hidden">
+        <div class="flex items-center justify-between mb-6 flex-wrap gap-3">
+            <div>
+                <h2 class="text-xl font-bold text-gray-900">📋 Топшириқлар ва Назорат</h2>
+                <p class="text-sm text-gray-500 mt-1">Ходимларга топшириқ бериш, муддат назорати ва ҳисобот олиш</p>
+            </div>
+            <button class="btn btn-primary" onclick="openTaskModal()">
+                ➕ Янги топшириқ яратиш
+            </button>
+        </div>
+
+        <!-- Stat Cards -->
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+            <div class="stat-card bg-white rounded-xl border border-gray-200 p-4 shadow-sm">
+                <div class="text-2xl font-bold text-gray-900" id="tasks-stat-total">0</div>
+                <div class="text-xs text-gray-500 mt-1">📋 Барча топшириқлар</div>
+            </div>
+            <div class="stat-card bg-white rounded-xl border border-blue-200 p-4 shadow-sm">
+                <div class="text-2xl font-bold text-blue-600" id="tasks-stat-active">0</div>
+                <div class="text-xs text-gray-500 mt-1">🔄 Жараёнда</div>
+            </div>
+            <div class="stat-card bg-white rounded-xl border border-green-200 p-4 shadow-sm">
+                <div class="text-2xl font-bold text-green-600" id="tasks-stat-completed">0</div>
+                <div class="text-xs text-gray-500 mt-1">✅ Бажарилди</div>
+            </div>
+            <div class="stat-card bg-white rounded-xl border border-red-200 p-4 shadow-sm">
+                <div class="text-2xl font-bold text-red-600" id="tasks-stat-expired">0</div>
+                <div class="text-xs text-gray-500 mt-1">⏰ Муддати ўтган</div>
+            </div>
+        </div>
+
+        <!-- Filter buttons -->
+        <div class="flex gap-2 mb-4 flex-wrap">
+            <button class="btn btn-primary text-xs py-1.5 px-3" onclick="loadTasks()">📋 Барчаси</button>
+            <button class="btn text-xs py-1.5 px-3 bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100" onclick="loadTasks('new')">🆕 Янги</button>
+            <button class="btn text-xs py-1.5 px-3 bg-yellow-50 text-yellow-700 border border-yellow-200 hover:bg-yellow-100" onclick="loadTasks('in_progress')">🔄 Жараёнда</button>
+            <button class="btn text-xs py-1.5 px-3 bg-green-50 text-green-700 border border-green-200 hover:bg-green-100" onclick="loadTasks('completed')">✅ Бажарилди</button>
+            <button class="btn text-xs py-1.5 px-3 bg-red-50 text-red-700 border border-red-200 hover:bg-red-100" onclick="loadTasks('expired')">⏰ Муддати ўтган</button>
+        </div>
+
+        <!-- Tasks Table -->
+        <div class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden mb-6">
+            <div class="px-4 py-3 border-b border-gray-200 flex items-center justify-between bg-gray-50">
+                <h3 class="font-semibold text-gray-800">📋 Топшириқлар жадвали</h3>
+            </div>
+            <div class="overflow-x-auto">
+                <table>
+                    <thead>
+                        <tr>
+                            <th class="w-12">#</th>
+                            <th>Мавзу</th>
+                            <th>Ижрочи</th>
+                            <th>Кузатувчи</th>
+                            <th>Муддат</th>
+                            <th>Статус</th>
+                            <th>Ходим жавоби</th>
+                            <th>Амаллар</th>
+                        </tr>
+                    </thead>
+                    <tbody id="tasks-table">
+                        <tr><td colspan="8" class="text-center text-gray-400 py-8">Маълумотлар юкланмоқда...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </section>
+
 </main>
+
+<!-- ═══════════════ MODAL: ЯНГИ ТОПШИРИҚ ЯРАТИШ ═══════════════ -->
+<div id="taskModal" class="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden">
+    <div class="bg-white rounded-2xl shadow-2xl max-w-lg w-full max-h-[92vh] flex flex-col overflow-hidden border border-gray-100 animate-in fade-in zoom-in duration-200">
+        <div class="px-6 py-4 border-b border-gray-200 flex items-center justify-between bg-gray-50">
+            <h3 class="text-lg font-bold text-gray-900">📋 Янги топшириқ яратиш</h3>
+            <button onclick="closeTaskModal()" class="text-gray-400 hover:text-gray-600 text-2xl font-bold p-1 leading-none">&times;</button>
+        </div>
+        <div class="p-6 overflow-y-auto space-y-4 flex-1">
+            <div>
+                <label class="text-xs font-semibold text-gray-600">Мавзу *</label>
+                <input type="text" id="task-title" class="w-full border rounded-lg px-3 py-2 mt-1 text-sm bg-white" placeholder="Топшириқ мавзуси...">
+            </div>
+            <div>
+                <label class="text-xs font-semibold text-gray-600">Тафсилот</label>
+                <textarea id="task-description" rows="3" class="w-full border rounded-lg px-3 py-2 mt-1 text-sm bg-white" placeholder="Батафсил тавсиф..."></textarea>
+            </div>
+            <!-- Voice Recording Component -->
+            <div class="bg-gray-50 border border-gray-200 rounded-xl p-3.5 space-y-2.5">
+                <div class="flex items-center justify-between">
+                    <label class="text-xs font-semibold text-gray-700 flex items-center gap-1.5">
+                        <span>🎙 Овозли топшириқ (Voice Note)</span>
+                    </label>
+                    <span id="voice-record-timer" class="text-xs font-mono font-bold text-red-600 hidden flex items-center gap-1">
+                        <span class="inline-block w-2 h-2 rounded-full bg-red-600 animate-ping"></span>
+                        <span id="voice-timer-display">00:00</span>
+                    </span>
+                </div>
+
+                <!-- Action Controls -->
+                <div class="flex items-center gap-2 flex-wrap">
+                    <button type="button" id="btn-start-record" onclick="startVoiceRecording()" class="btn text-xs py-1.5 px-3 bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 flex items-center gap-1.5 rounded-lg">
+                        <span>🎙 Овоз ёзиш</span>
+                    </button>
+                    <button type="button" id="btn-stop-record" onclick="stopVoiceRecording()" class="btn text-xs py-1.5 px-3 bg-red-500 text-white hover:bg-red-600 hidden flex items-center gap-1.5 rounded-lg animate-pulse">
+                        <span>⏹ Тўхтатиш</span>
+                    </button>
+                    <button type="button" id="btn-delete-record" onclick="resetVoiceRecording()" class="btn text-xs py-1.5 px-3 bg-gray-100 text-gray-600 hover:bg-gray-200 hidden flex items-center gap-1.5 rounded-lg" title="Қайта ёзиш / Ўчириш">
+                        <span>🗑 Қайта ёзиш</span>
+                    </button>
+                </div>
+
+                <!-- Audio Preview Player -->
+                <div id="voice-preview-container" class="hidden pt-1">
+                    <audio id="voice-preview-audio" controls class="w-full h-9 rounded-lg"></audio>
+                    <p class="text-[11px] text-green-700 font-medium mt-1">✅ Овоз ёзиб олинди! Тасдиқлашдан олдин тинглаб кўришингиз мумкин.</p>
+                </div>
+            </div>
+            <div>
+                <label class="text-xs font-semibold text-gray-600">Ижрочи ходим *</label>
+                <select id="task-assignee" class="w-full border rounded-lg px-3 py-2 mt-1 text-sm bg-white" onchange="onTaskAssigneeChange(this)">
+                    <option value="">-- Ижрочини танланг --</option>
+                </select>
+            </div>
+            <div>
+                <label class="text-xs font-semibold text-gray-600">Кузатувчи / Назоратчи (ихтиёрий)</label>
+                <select id="task-observer" class="w-full border rounded-lg px-3 py-2 mt-1 text-sm bg-white" onchange="onTaskObserverChange(this)">
+                    <option value="">-- Кузатувчи йўқ --</option>
+                </select>
+            </div>
+            <div>
+                <label class="text-xs font-semibold text-gray-600">Муддат (Deadline)</label>
+                <input type="datetime-local" id="task-deadline" class="w-full border rounded-lg px-3 py-2 mt-1 text-sm bg-white">
+            </div>
+        </div>
+        <div class="px-6 py-4 border-t border-gray-200 bg-gray-50 flex justify-end gap-3">
+            <button onclick="closeTaskModal()" class="btn text-sm py-2 px-4 bg-gray-100 text-gray-600 hover:bg-gray-200 rounded-lg">Бекор қилиш</button>
+            <button onclick="createTask()" class="btn btn-primary text-sm py-2 px-4 rounded-lg">📋 Яратиш ва юбориш</button>
+        </div>
+    </div>
+</div>
 
 <!-- ═══════════════ MODAL: PARTNER OFFER PREVIEW & SHARE ═══════════════ -->
 <div id="partnerOfferModal" class="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden">
@@ -948,13 +1089,14 @@ function promptBackendUrl() {
 }
 
 // ═══════════════ TABS & STATE PERSISTENCE ═══════════════
-const TAB_KEYS = ['warehouse', 'debts', 'finance', 'hr', 'partners'];
+const TAB_KEYS = ['warehouse', 'debts', 'finance', 'hr', 'partners', 'tasks'];
 const TAB_MAP = {
     'warehouse': 0, 'ombor': 0, '0': 0,
     'debts': 1, 'debtors': 1, 'debitor': 1, '1': 1,
     'finance': 2, 'cashflow': 2, 'pul': 2, '2': 2,
     'hr': 3, 'kpi': 3, 'hodimlar': 3, 'timesheet': 3, '3': 3,
-    'partners': 4, 'referrals': 4, 'hamkorlik': 4, '4': 4
+    'partners': 4, 'referrals': 4, 'hamkorlik': 4, '4': 4,
+    'tasks': 5, 'topshiriq': 5, 'task': 5, '5': 5
 };
 
 // ═══════════════ DATE RANGE FILTER COMPONENT (МОЙСКЛАД) ═══════════════
@@ -1187,6 +1329,7 @@ function switchTab(tabInput) {
     else if (idx === 2) loadCashFlow();
     else if (idx === 3) loadTimesheet();
     else if (idx === 4) loadReferralStats();
+    else if (idx === 5) loadTasks();
 }
 
 function toast(msg, isError = false) {
@@ -2880,6 +3023,407 @@ checkApiStatus();
 loadBrandsList();
 restoreInitialTab();
 startHRAutoPolling();
+
+
+// ═══════════════ ТОПШИРИҚЛАР ВА НАЗОРАТ (TASK MANAGER) JS ═══════════════
+
+// ═══════════════ ТОПШИРИҚЛАР ВА НАЗОРАТ (TASK MANAGER) JS ═══════════════
+
+let taskEmployeesList = [];
+let mediaRecorder = null;
+let audioChunks = [];
+let voiceRecordTimerInterval = null;
+let voiceRecordSeconds = 0;
+let currentVoiceBlob = null;
+
+// ── Овоз ёзиш (MediaRecorder API) ──
+
+async function startVoiceRecording() {
+    try {
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+            toast('Браузерингизда микрофонни ишлатиш имкони йўқ ёки HTTPS керак', true);
+            return;
+        }
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+
+        let mimeType = 'audio/webm';
+        if (typeof MediaRecorder !== 'undefined') {
+            if (MediaRecorder.isTypeSupported('audio/webm;codecs=opus')) {
+                mimeType = 'audio/webm;codecs=opus';
+            } else if (MediaRecorder.isTypeSupported('audio/ogg;codecs=opus')) {
+                mimeType = 'audio/ogg;codecs=opus';
+            } else if (MediaRecorder.isTypeSupported('audio/mp4')) {
+                mimeType = 'audio/mp4';
+            }
+        }
+
+        mediaRecorder = new MediaRecorder(stream, { mimeType });
+        audioChunks = [];
+
+        mediaRecorder.ondataavailable = (event) => {
+            if (event.data && event.data.size > 0) {
+                audioChunks.push(event.data);
+            }
+        };
+
+        mediaRecorder.onstop = () => {
+            currentVoiceBlob = new Blob(audioChunks, { type: mimeType });
+            const audioUrl = URL.createObjectURL(currentVoiceBlob);
+            const previewAudio = document.getElementById('voice-preview-audio');
+            if (previewAudio) {
+                previewAudio.src = audioUrl;
+            }
+            document.getElementById('voice-preview-container').classList.remove('hidden');
+            document.getElementById('btn-delete-record').classList.remove('hidden');
+            document.getElementById('btn-start-record').classList.remove('hidden');
+            document.getElementById('btn-start-record').innerHTML = '<span>🔄 Қайта ёзиш</span>';
+            // Микрофонни ўчириш
+            stream.getTracks().forEach(track => track.stop());
+        };
+
+        mediaRecorder.start();
+
+        // UI ҳолатларини янгилаш
+        document.getElementById('btn-start-record').classList.add('hidden');
+        document.getElementById('btn-stop-record').classList.remove('hidden');
+        document.getElementById('btn-delete-record').classList.add('hidden');
+        document.getElementById('voice-preview-container').classList.add('hidden');
+        document.getElementById('voice-record-timer').classList.remove('hidden');
+
+        voiceRecordSeconds = 0;
+        document.getElementById('voice-timer-display').textContent = '00:00';
+        clearInterval(voiceRecordTimerInterval);
+        voiceRecordTimerInterval = setInterval(() => {
+            voiceRecordSeconds++;
+            const mins = String(Math.floor(voiceRecordSeconds / 60)).padStart(2, '0');
+            const secs = String(voiceRecordSeconds % 60).padStart(2, '0');
+            document.getElementById('voice-timer-display').textContent = `${mins}:${secs}`;
+        }, 1000);
+
+    } catch (err) {
+        console.error('Microphone error:', err);
+        toast('Микрофондан фойдаланишга рухсат берилмади: ' + err.message, true);
+    }
+}
+
+function stopVoiceRecording() {
+    if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+        mediaRecorder.stop();
+    }
+    clearInterval(voiceRecordTimerInterval);
+    document.getElementById('btn-stop-record').classList.add('hidden');
+    document.getElementById('voice-record-timer').classList.add('hidden');
+}
+
+function resetVoiceRecording() {
+    if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+        mediaRecorder.stop();
+    }
+    clearInterval(voiceRecordTimerInterval);
+    mediaRecorder = null;
+    audioChunks = [];
+    currentVoiceBlob = null;
+
+    const previewAudio = document.getElementById('voice-preview-audio');
+    if (previewAudio) {
+        previewAudio.pause();
+        previewAudio.src = '';
+    }
+    const prevCont = document.getElementById('voice-preview-container');
+    if (prevCont) prevCont.classList.add('hidden');
+    const timerEl = document.getElementById('voice-record-timer');
+    if (timerEl) timerEl.classList.add('hidden');
+    const stopBtn = document.getElementById('btn-stop-record');
+    if (stopBtn) stopBtn.classList.add('hidden');
+    const delBtn = document.getElementById('btn-delete-record');
+    if (delBtn) delBtn.classList.add('hidden');
+    const startBtn = document.getElementById('btn-start-record');
+    if (startBtn) {
+        startBtn.classList.remove('hidden');
+        startBtn.innerHTML = '<span>🎙 Овоз ёзиш</span>';
+    }
+}
+
+async function loadTaskEmployees() {
+    if (taskEmployeesList.length) return taskEmployeesList;
+    const data = await apiFetch('/hr/employees');
+    if (data && Array.isArray(data)) {
+        taskEmployeesList = data;
+    }
+    return taskEmployeesList;
+}
+
+function populateTaskDropdowns() {
+    const assigneeSelect = document.getElementById('task-assignee');
+    const observerSelect = document.getElementById('task-observer');
+    if (!assigneeSelect) return;
+
+    const emps = taskEmployeesList;
+    assigneeSelect.innerHTML = '<option value="">-- Ижрочини танланг --</option>' +
+        emps.map(e => `<option value="${e.id}" data-name="${escapeHtml(e.employee_name || e.name || '')}">${escapeHtml(e.employee_name || e.name || 'Ходим')} (ID: ${e.id})</option>`).join('');
+
+    observerSelect.innerHTML = '<option value="">-- Кузатувчи йўқ --</option>' +
+        emps.map(e => `<option value="${e.id}" data-name="${escapeHtml(e.employee_name || e.name || '')}">${escapeHtml(e.employee_name || e.name || 'Ходим')} (ID: ${e.id})</option>`).join('');
+}
+
+let _selectedAssigneeName = '';
+let _selectedObserverName = '';
+
+function onTaskAssigneeChange(select) {
+    const opt = select.options[select.selectedIndex];
+    _selectedAssigneeName = opt ? (opt.getAttribute('data-name') || opt.text) : '';
+}
+
+function onTaskObserverChange(select) {
+    const opt = select.options[select.selectedIndex];
+    _selectedObserverName = opt ? (opt.getAttribute('data-name') || opt.text) : '';
+}
+
+async function openTaskModal() {
+    resetVoiceRecording();
+    await loadTaskEmployees();
+    populateTaskDropdowns();
+    // Бирламчи дедлайн: бугундан 24 соат кейин
+    const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000);
+    const dlInput = document.getElementById('task-deadline');
+    if (dlInput) {
+        dlInput.value = tomorrow.toISOString().slice(0, 16);
+    }
+    document.getElementById('task-title').value = '';
+    document.getElementById('task-description').value = '';
+    document.getElementById('task-assignee').value = '';
+    document.getElementById('task-observer').value = '';
+    _selectedAssigneeName = '';
+    _selectedObserverName = '';
+    document.getElementById('taskModal').classList.remove('hidden');
+}
+
+function closeTaskModal() {
+    resetVoiceRecording();
+    document.getElementById('taskModal').classList.add('hidden');
+}
+
+async function createTask() {
+    const title = document.getElementById('task-title').value.trim();
+    const description = document.getElementById('task-description').value.trim();
+    const assigneeId = document.getElementById('task-assignee').value;
+    const observerId = document.getElementById('task-observer').value;
+    const deadline = document.getElementById('task-deadline').value;
+
+    if (!title) { toast('Мавзу киритилмади!', true); return; }
+    if (!assigneeId) { toast('Ижрочи танланмади!', true); return; }
+
+    // Агар овозли хабар ёзилган бўлса, FormData орқали юбориш
+    if (currentVoiceBlob) {
+        const formData = new FormData();
+        formData.append('title', title);
+        if (description) formData.append('description', description);
+        formData.append('assigned_to', assigneeId);
+        formData.append('assigned_name', _selectedAssigneeName || 'Ходим');
+        if (observerId) formData.append('observer_id', observerId);
+        if (observerId && _selectedObserverName) formData.append('observer_name', _selectedObserverName);
+        if (deadline) formData.append('deadline', deadline);
+
+        const ext = currentVoiceBlob.type.includes('ogg') ? 'voice.ogg' : 'voice.webm';
+        formData.append('voice_file', currentVoiceBlob, ext);
+
+        try {
+            const res = await fetch(API + '/tasks/create-with-voice', {
+                method: 'POST',
+                body: formData
+            });
+            const data = await res.json();
+            if (res.ok) {
+                toast('🎙 Топшириқ овозли хабар билан яратилди ва Telegram орқали юборилди!');
+                closeTaskModal();
+                loadTasks();
+            } else {
+                toast('❌ Хатолик: ' + (data.detail || JSON.stringify(data)), true);
+            }
+        } catch (e) {
+            toast('❌ Сервер билан алоқа йўқ: ' + e.message, true);
+        }
+        return;
+    }
+
+    // Овоз ёзилмаган бўлса стандарт JSON орқали юбориш
+    const payload = {
+        title: title,
+        description: description || null,
+        assigned_to: parseInt(assigneeId),
+        assigned_name: _selectedAssigneeName || 'Ходим',
+        observer_id: observerId ? parseInt(observerId) : null,
+        observer_name: observerId ? (_selectedObserverName || null) : null,
+        deadline: deadline || null
+    };
+
+    try {
+        const res = await fetch(API + '/tasks', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+        if (res.ok) {
+            toast('✅ Топшириқ яратилди ва Telegram орқали юборилди!');
+            closeTaskModal();
+            loadTasks();
+        } else {
+            toast('❌ Хатолик: ' + (data.detail || JSON.stringify(data)), true);
+        }
+    } catch (e) {
+        toast('❌ Сервер билан алоқа йўқ: ' + e.message, true);
+    }
+}
+
+async function loadTasks(statusFilter) {
+    const tbody = document.getElementById('tasks-table');
+    if (!tbody) return;
+    tbody.innerHTML = '<tr><td colspan="8" class="text-center text-gray-400 py-8"><div class="loader mx-auto"></div> Юкланмоқда...</td></tr>';
+
+    let url = '/tasks';
+    if (statusFilter) url += '?status=' + statusFilter;
+
+    const data = await apiFetch(url);
+    if (!data || !Array.isArray(data)) {
+        tbody.innerHTML = '<tr><td colspan="8" class="text-center text-gray-400 py-8">Маълумот олинмади</td></tr>';
+        return;
+    }
+
+    // Stat cards учун (барча топшириқларни юклаб)
+    const allData = statusFilter ? await apiFetch('/tasks') : data;
+    if (allData && Array.isArray(allData)) {
+        const total = allData.length;
+        const active = allData.filter(t => t.status === 'new' || t.status === 'in_progress').length;
+        const completed = allData.filter(t => t.status === 'completed').length;
+        const expired = allData.filter(t => t.status === 'expired').length;
+        document.getElementById('tasks-stat-total').textContent = total;
+        document.getElementById('tasks-stat-active').textContent = active;
+        document.getElementById('tasks-stat-completed').textContent = completed;
+        document.getElementById('tasks-stat-expired').textContent = expired;
+    }
+
+    if (data.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="8" class="text-center text-gray-400 py-8">Топшириқлар мавжуд эмас</td></tr>';
+        return;
+    }
+
+    tbody.innerHTML = data.map((t, idx) => {
+        const statusMap = {
+            'new': '<span class="badge badge-blue">🆕 Янги</span>',
+            'in_progress': '<span class="badge badge-yellow">🔄 Жараёнда</span>',
+            'completed': '<span class="badge badge-green">✅ Бажарилди</span>',
+            'expired': '<span class="badge badge-red">⏰ Муддати ўтган</span>'
+        };
+        const statusBadge = statusMap[t.status] || `<span class="badge">${t.status}</span>`;
+
+        let deadlineStr = '—';
+        if (t.deadline) {
+            try {
+                const dl = new Date(t.deadline);
+                deadlineStr = dl.toLocaleDateString('ru-RU') + ' ' + dl.toLocaleTimeString('ru-RU', {hour:'2-digit', minute:'2-digit'});
+                // Муддати ўтганми?
+                if (dl < new Date() && (t.status === 'new' || t.status === 'in_progress')) {
+                    deadlineStr = '<span class="text-red-600 font-bold">' + deadlineStr + ' ⚠️</span>';
+                }
+            } catch(e) { deadlineStr = t.deadline; }
+        }
+
+        const response = t.employee_response
+            ? `<span class="text-green-700 text-xs">${escapeHtml((t.employee_response || '').substring(0, 80))}${t.employee_response.length > 80 ? '...' : ''}</span>`
+            : '<span class="text-gray-400 text-xs">—</span>';
+
+        // Овозли топшириқ бўлса аудио плеер тугмаси/вижети
+        let voicePlayerHtml = '';
+        if (t.voice_url) {
+            voicePlayerHtml = `
+                <div class="mt-1.5 flex items-center gap-1.5 bg-blue-50/80 px-2 py-1 rounded-lg border border-blue-100 max-w-fit">
+                    <span class="text-xs" title="Овозли хабар">🎙</span>
+                    <audio controls preload="none" src="${t.voice_url}" class="h-6 w-40"></audio>
+                </div>
+            `;
+        }
+
+        const actions = [];
+        if (t.status === 'new' || t.status === 'in_progress') {
+            actions.push(`<button class="btn text-xs py-1 px-2 bg-yellow-50 text-yellow-700 border border-yellow-200 hover:bg-yellow-100" onclick="remindTask(${t.id})" title="Эслатма юбориш">🔔</button>`);
+            actions.push(`<button class="btn text-xs py-1 px-2 bg-green-50 text-green-700 border border-green-200 hover:bg-green-100" onclick="completeTask(${t.id})" title="Бажарилди">✅</button>`);
+        }
+        actions.push(`<button class="btn text-xs py-1 px-2 bg-red-50 text-red-700 border border-red-200 hover:bg-red-100" onclick="closeTask(${t.id})" title="Ўчириш">🗑️</button>`);
+
+        return `
+            <tr class="hover:bg-gray-50/70 transition">
+                <td class="text-gray-400 font-medium">${t.id}</td>
+                <td>
+                    <div class="font-semibold text-gray-900 flex items-center gap-1.5">
+                        ${escapeHtml(t.title || '')}
+                        ${t.voice_url ? '<span class="text-[10px] bg-blue-100 text-blue-800 px-1.5 py-0.2 rounded font-medium">🎙 Овозли</span>' : ''}
+                    </div>
+                    ${t.description ? `<div class="text-xs text-gray-500 mt-0.5">${escapeHtml((t.description || '').substring(0, 60))}${t.description.length > 60 ? '...' : ''}</div>` : ''}
+                    ${voicePlayerHtml}
+                </td>
+                <td class="font-medium text-gray-800">${escapeHtml(t.assigned_name || '—')}</td>
+                <td class="text-gray-600">${escapeHtml(t.observer_name || '—')}</td>
+                <td class="num text-sm">${deadlineStr}</td>
+                <td>${statusBadge}</td>
+                <td>${response}</td>
+                <td class="space-x-1">${actions.join(' ')}</td>
+            </tr>
+        `;
+    }).join('');
+}
+
+async function remindTask(taskId) {
+    if (!confirm('Ходимга шошилинч эслатма юбориш?')) return;
+    try {
+        const res = await fetch(API + '/tasks/' + taskId + '/remind', { method: 'POST' });
+        const data = await res.json();
+        if (res.ok) {
+            toast('🔔 Эслатма юборилди!');
+        } else {
+            toast('❌ ' + (data.detail || 'Хатолик'), true);
+        }
+    } catch(e) {
+        toast('❌ Сервер алоқаси йўқ', true);
+    }
+}
+
+async function completeTask(taskId) {
+    if (!confirm('Топшириқни бажарилди деб белгилаш?')) return;
+    try {
+        const res = await fetch(API + '/tasks/' + taskId + '/status', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ status: 'completed' })
+        });
+        if (res.ok) {
+            toast('✅ Топшириқ бажарилди деб белгиланди!');
+            loadTasks();
+        } else {
+            const data = await res.json();
+            toast('❌ ' + (data.detail || 'Хатолик'), true);
+        }
+    } catch(e) {
+        toast('❌ Сервер алоқаси йўқ', true);
+    }
+}
+
+async function closeTask(taskId) {
+    if (!confirm('Топшириқни ўчириш?')) return;
+    try {
+        const res = await fetch(API + '/tasks/' + taskId, { method: 'DELETE' });
+        if (res.ok) {
+            toast('🗑️ Топшириқ ўчирилди');
+            loadTasks();
+        } else {
+            const data = await res.json();
+            toast('❌ ' + (data.detail || 'Хатолик'), true);
+        }
+    } catch(e) {
+        toast('❌ Сервер алоқаси йўқ', true);
+    }
+}
+
 </script>
 </body>
 </html>

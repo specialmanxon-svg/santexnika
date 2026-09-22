@@ -15,6 +15,7 @@ from api.v1.counterparties import router as counterparties_router
 from api.v1.crm import router as crm_router
 from api.v1.management import router as management_router
 from api.v1.webhook import router as webhook_router
+from api.v1.tasks import router as tasks_router
 
 api_router = APIRouter(prefix="/api/v1")
 
@@ -35,3 +36,5 @@ api_router.include_router(campaigns_router)        # Рассылкалар
 api_router.include_router(analytics_router)        # Аналитика
 api_router.include_router(crm_router)              # CRM
 api_router.include_router(management_router)       # Бошқарув
+api_router.include_router(tasks_router)            # 6. Топшириқлар ва Назорат (Task Manager)
+

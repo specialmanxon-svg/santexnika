@@ -48,3 +48,8 @@ celerybeat-schedule.db
 .pytest_cache/
 .coverage
 htmlcov/
+
+# Voice uploads
+static/uploads/voice_tasks/*
+!static/uploads/voice_tasks/.gitkeep
+
