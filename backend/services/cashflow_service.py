@@ -1,6 +1,7 @@
 """Cash Flow service for MoySklad financial analytics and Diyor Group Dashboard."""
 import time
 import asyncio
+import re
 import structlog
 from typing import Dict, Any, Optional, List
 from datetime import datetime
@@ -33,6 +34,89 @@ EXPENSE_CATEGORY_NAMES = {
     "Покупка основных средств": "Асосий воситалар хариди"
 }
 
+COMMON_BRAND_KEYWORDS = [
+    ("GROHE", ["GROHE", "BAUEDGE", "BAUCLASSIC", "ESSENCE", "TEMPESTA", "ESSENTIALS", "BAULOOP", "EUROSMART", "RAPID SL", "SOLIDO"]),
+    ("VALTEC", ["VALTEC"]),
+    ("JAQUAR", ["JAQUAR"]),
+    ("ESSCO", ["ESSCO"]),
+    ("KALDE", ["KALDE"]),
+    ("KNAUF", ["KNAUF", "КНАУФ"]),
+    ("BNBM", ["BNBM", "SINOGIPS"]),
+    ("VENTUM", ["VENTUM", "ВЕНТУМ"]),
+    ("EAST COLOR", ["EAST COLOR"]),
+    ("DEMIR", ["DEMIR", "ДЕМИР"]),
+    ("VIKO", ["VIKO", "ВИКО"]),
+    ("GAPPO & FRAP", ["GAPPO", "FRAP"]),
+    ("DCO", ["DCO"]),
+    ("DIYOR", ["DIYOR"]),
+    ("Artize", ["ARTIZE"])
+]
+
+def normalize_brand(raw_name: str) -> str:
+    if not raw_name or not str(raw_name).strip():
+        return "Бошқа брендлар"
+    b = str(raw_name).strip()
+    bu = b.upper()
+    if "GROHE" in bu:
+        return "GROHE"
+    if "JAQUAR" in bu:
+        return "JAQUAR"
+    if "VALTEC" in bu:
+        return "VALTEC"
+    if "KALDE" in bu:
+        return "KALDE"
+    if "КНАУФ" in bu or "KNAUF" in bu:
+        return "KNAUF"
+    if "ESSCO" in bu:
+        return "ESSCO"
+    if "ARTIZE" in bu:
+        return "Artize"
+    if "GAPPO" in bu or "FRAP" in bu:
+        return "GAPPO & FRAP"
+    if "DCO" in bu:
+        return "DCO"
+    if "DIYOR" in bu:
+        return "DIYOR"
+    if "RAGLO" in bu or "SPLENKA" in bu:
+        return "RAGLO & SPLENKA"
+    if "BNBM" in bu:
+        return "BNBM"
+    if "VENTUM" in bu or "ВЕНТУМ" in bu:
+        return "VENTUM"
+    if "EAST COLOR" in bu:
+        return "EAST COLOR"
+    if "DEMIR" in bu or "ДЕМИР" in bu:
+        return "DEMIR"
+    if "VIKO" in bu or "ВИКО" in bu:
+        return "VIKO"
+    if "ХОЗ" in bu or "ХОЗЯЙСТВ" in bu:
+        return "Хўжалик моллари (Хозтовары)"
+    if "ХИЗМАТ" in bu or "ДОСТАВКА" in bu or "УСЛУГ" in bu:
+        return "Хизматлар (Доставка ва монтаж)"
+    if "ДУСЕЛ" in bu or "DUSEL" in bu:
+        return "DUSEL"
+    if "DAIKIN" in bu:
+        return "DAIKIN"
+    if "EGGAR" in bu or "EGGER" in bu:
+        return "EGGER"
+    if "EMERICH" in bu:
+        return "EMERICH"
+    if "ТЕКБОНД" in bu or "TEKBOND" in bu:
+        return "TEKBOND"
+    if "E.C.A" in bu:
+        return "E.C.A."
+    if "VERO" in bu:
+        return "VERO"
+    if "MILANO" in bu:
+        return "MILANO"
+    if "VIEANY" in bu:
+        return "VIEANY"
+    if "АСПЕКТ" in bu:
+        return "АСПЕКТ"
+    if "КЕРОМАГРАНИТ" in bu:
+        return "КЕРОМАГРАНИТ"
+    return b
+
 
 class CashFlowService:
     def __init__(self):
@@ -46,11 +130,17 @@ class CashFlowService:
             "ts": 0.0,
             "map": {}
         }
+        self._product_brand_cache: Dict[str, str] = {}
         self._expense_items_cache = {
             "ts": 0.0,
             "map": {}
         }
         self._expenses_cache = {
+            "ts": 0.0,
+            "key": "",
+            "data": None
+        }
+        self._brand_margin_cache = {
             "ts": 0.0,
             "key": "",
             "data": None
@@ -97,6 +187,104 @@ class CashFlowService:
             self._expense_items_cache["ts"] = now
             self._expense_items_cache["map"] = exp_map
         return exp_map or self._expense_items_cache.get("map", {})
+
+    async def _resolve_product_brands(self, products_info: List[Dict[str, Any]]) -> Dict[str, str]:
+        """
+        Takes a list of {'id': pid, 'name': pname, 'type': ptype, 'pathName': path}
+        Returns mapping pid -> brand name
+        """
+        result = {}
+        missing_pids = []
+
+        for p in products_info:
+            pid = p.get("id")
+            if not pid:
+                continue
+            ptype = p.get("type", "product")
+            pname = p.get("name", "")
+
+            if ptype == "service" or "хизмат" in pname.lower() or "доставка" in pname.lower() or "монтаж" in pname.lower():
+                result[pid] = "Хизматлар (Доставка ва монтаж)"
+                continue
+
+            if pid in self._product_brand_cache:
+                result[pid] = self._product_brand_cache[pid]
+                continue
+
+            missing_pids.append(pid)
+
+        # Batch fetch missing product attributes from MoySklad
+        if missing_pids:
+            chunk_size = 50
+            for i in range(0, len(missing_pids), chunk_size):
+                chunk = missing_pids[i:i + chunk_size]
+                filter_str = ";".join([f"id={x}" for x in chunk if x])
+                if not filter_str:
+                    continue
+                try:
+                    res = await self.ms_client.get("/entity/product", params={"filter": filter_str})
+                    for prod in res.get("rows", []):
+                        prod_id = prod.get("id")
+                        detected = None
+
+                        # 1. Check custom attribute 'Бренд товара' or 'Бренд'
+                        for a in prod.get("attributes", []):
+                            if "бренд" in a.get("name", "").lower():
+                                val = a.get("value")
+                                if isinstance(val, dict):
+                                    detected = val.get("name")
+                                elif val:
+                                    detected = str(val)
+                                if detected:
+                                    break
+
+                        # 2. Check pathName / productFolder
+                        if not detected:
+                            path = prod.get("pathName", "")
+                            if path:
+                                parts = [x.strip() for x in path.split("/") if x.strip()]
+                                for part in parts:
+                                    if part.lower() not in ["сантехника", "строй материаль", "остаток товар база"]:
+                                        detected = part
+                                        break
+
+                        # 3. Check product name against known brand keywords
+                        if not detected:
+                            name_upper = prod.get("name", "").upper()
+                            for brand_label, keywords in COMMON_BRAND_KEYWORDS:
+                                for kw in keywords:
+                                    if re.search(r'\b' + re.escape(kw) + r'\b', name_upper):
+                                        detected = brand_label
+                                        break
+                                if detected:
+                                    break
+
+                        final_brand = normalize_brand(detected or "Бошқа брендлар")
+                        self._product_brand_cache[prod_id] = final_brand
+                        result[prod_id] = final_brand
+                except Exception as e:
+                    logger.warning("failed_to_batch_fetch_products_brand", error=str(e))
+
+        # Any still unassigned
+        for p in products_info:
+            pid = p.get("id")
+            if not pid:
+                continue
+            if pid not in result:
+                name_upper = p.get("name", "").upper()
+                detected = None
+                for brand_label, keywords in COMMON_BRAND_KEYWORDS:
+                    for kw in keywords:
+                        if re.search(r'\b' + re.escape(kw) + r'\b', name_upper):
+                            detected = brand_label
+                            break
+                    if detected:
+                        break
+                final_brand = normalize_brand(detected or "Бошқа брендлар")
+                self._product_brand_cache[pid] = final_brand
+                result[pid] = final_brand
+
+        return result
 
     async def _fetch_payments_entity(self, entity: str, date_from: Optional[str] = None, date_to: Optional[str] = None) -> List[dict]:
         """Fetch payment or cash entity with date filtering and pagination."""
@@ -213,8 +401,22 @@ class CashFlowService:
             total_income_period = sum(d["income"] for d in daily_flow)
             total_expense_period = sum(d["expense"] for d in daily_flow)
 
-            # 5. Aggregate category margins
-            category_totals: Dict[str, Dict[str, float]] = {}
+            # 5. Aggregate brand margins (Брендлар бўйича маржа ва фойда таҳлили)
+            products_info = []
+            for r in profit_rows:
+                assort = r.get("assortment", {})
+                m_meta = assort.get("meta", {})
+                pid = m_meta.get("href", "").split("/")[-1] if m_meta.get("href") else ""
+                products_info.append({
+                    "id": pid,
+                    "name": assort.get("name", ""),
+                    "type": m_meta.get("type", "product"),
+                    "pathName": assort.get("pathName", "")
+                })
+
+            brand_map = await self._resolve_product_brands(products_info)
+
+            brand_totals: Dict[str, Dict[str, float]] = {}
             total_revenue = 0.0
             total_cogs = 0.0
             total_profit = 0.0
@@ -222,13 +424,9 @@ class CashFlowService:
             for r in profit_rows:
                 assort = r.get("assortment", {})
                 m_meta = assort.get("meta", {})
-                m_type = m_meta.get("type", "product")
-                pid = m_meta.get("href", "").split("/")[-1]
+                pid = m_meta.get("href", "").split("/")[-1] if m_meta.get("href") else ""
 
-                if m_type == "service":
-                    cat_name = "Хизматлар (Доставка ва монтаж)"
-                else:
-                    cat_name = cat_map.get(pid) or assort.get("pathName", "").split("/")[-1] or "Бошқа сантехника"
+                b_name = brand_map.get(pid, "Бошқа брендлар")
 
                 sell = float(r.get("sellSum", 0.0) - r.get("returnSum", 0.0)) / 100.0
                 cost = float(r.get("sellCostSum", 0.0) - r.get("returnCostSum", 0.0)) / 100.0
@@ -238,27 +436,29 @@ class CashFlowService:
                 total_cogs += cost
                 total_profit += pr
 
-                if cat_name not in category_totals:
-                    category_totals[cat_name] = {"sales": 0.0, "cost": 0.0, "margin": 0.0}
-                category_totals[cat_name]["sales"] += sell
-                category_totals[cat_name]["cost"] += cost
-                category_totals[cat_name]["margin"] += pr
+                if b_name not in brand_totals:
+                    brand_totals[b_name] = {"sales": 0.0, "cost": 0.0, "margin": 0.0}
+                brand_totals[b_name]["sales"] += sell
+                brand_totals[b_name]["cost"] += cost
+                brand_totals[b_name]["margin"] += pr
 
-            # Format category_margin list
-            category_margin = []
-            for cname, cdata in category_totals.items():
-                s = round(cdata["sales"], 2)
-                c = round(cdata["cost"], 2)
-                m = round(cdata["margin"], 2)
-                pct = round((m / s * 100.0), 1) if s > 0 else 0.0
-                category_margin.append({
-                    "category": cname,
+            # Format brand_margin list
+            brand_margin = []
+            for bname, bdata in brand_totals.items():
+                s = round(bdata["sales"], 2)
+                c = round(bdata["cost"], 2)
+                m = round(bdata["margin"], 2)
+                pct = round((m / s * 100.0), 2) if s > 0 else 0.0
+                brand_margin.append({
+                    "brand": bname,
+                    "category": bname,
                     "sales": s,
                     "cost": c,
                     "margin": m,
                     "margin_percent": pct
                 })
-            category_margin.sort(key=lambda x: x["sales"], reverse=True)
+            brand_margin.sort(key=lambda x: x["sales"], reverse=True)
+            category_margin = brand_margin
 
             # Calculate Net Profit & Margin %
             net_profit = round(total_profit, 2)
@@ -287,7 +487,8 @@ class CashFlowService:
                     "margin_percent": margin_percent
                 },
                 "daily_flow": daily_flow,
-                "category_margin": category_margin
+                "category_margin": category_margin,
+                "brand_margin": brand_margin
             }
 
             self._cache["ts"] = now_ts
@@ -403,6 +604,21 @@ class CashFlowService:
             if self._expenses_cache["data"]:
                 return self._expenses_cache["data"]
             return []
+
+    async def get_brand_margin(
+        self,
+        date_from: Optional[str] = None,
+        date_to: Optional[str] = None,
+        force_refresh: bool = False
+    ) -> List[Dict[str, Any]]:
+        """
+        Brand margin breakdown from MoySklad profit report:
+        [
+            { "brand": "GROHE", "sales": 183362166.0, "cost": 122383984.0, "margin": 60978182.0, "margin_percent": 33.26 }, ...
+        ]
+        """
+        summary = await self.get_cashflow_summary(date_from=date_from, date_to=date_to, force_refresh=force_refresh)
+        return summary.get("brand_margin", [])
 
     async def get_daily_cashflow(self, date_from: Optional[str] = None, date_to: Optional[str] = None) -> Dict[str, Any]:
         """Backward-compatible endpoint: delegates to get_cashflow_summary."""

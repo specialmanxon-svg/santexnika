@@ -70,3 +70,22 @@ async def get_expenses_by_category(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/brand-margin")
+async def get_brand_margin(
+    start_date: Optional[str] = Query(None),
+    end_date: Optional[str] = Query(None),
+    date_from: Optional[str] = Query(None),
+    date_to: Optional[str] = Query(None),
+    from_date: Optional[str] = Query(None),
+    to_date: Optional[str] = Query(None),
+    force_refresh: bool = Query(False)
+):
+    """Brand margin breakdown."""
+    df = start_date or from_date or date_from
+    dt = end_date or to_date or date_to
+    try:
+        return await cashflow_service.get_brand_margin(date_from=df, date_to=dt, force_refresh=force_refresh)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
