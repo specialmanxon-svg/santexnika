@@ -68,14 +68,30 @@ async def _demand_hard_lock_monitor():
 async def lifespan(app: FastAPI):
     """Application lifecycle manager."""
     logger.info("application_starting", env=settings.app_env)
-    # Create tables if they don't exist (development only)
-    if settings.app_debug:
-        try:
-            async with engine.begin() as conn:
-                await conn.run_sync(Base.metadata.create_all)
-            logger.info("database_tables_created")
-        except Exception as e:
-            logger.warning("database_init_skipped", error=str(e), hint="Running in local mode without Docker DB")
+    # Create tables and auto-migrate columns if missing
+    try:
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+            def _migrate_tasks_cols(sync_conn):
+                try:
+                    cursor = sync_conn.connection.cursor()
+                    cursor.execute("PRAGMA table_info(tasks);")
+                    cols = {row[1] for row in cursor.fetchall()}
+                    if cols:
+                        if "creator_name" not in cols:
+                            cursor.execute("ALTER TABLE tasks ADD COLUMN creator_name VARCHAR(255);")
+                        if "creator_chat_id" not in cols:
+                            cursor.execute("ALTER TABLE tasks ADD COLUMN creator_chat_id BIGINT;")
+                        if "voice_file_id" not in cols:
+                            cursor.execute("ALTER TABLE tasks ADD COLUMN voice_file_id VARCHAR(255);")
+                        if "voice_url" not in cols:
+                            cursor.execute("ALTER TABLE tasks ADD COLUMN voice_url VARCHAR(500);")
+                except Exception as ex:
+                    logger.warning("tasks_columns_migration_warning", error=str(ex))
+            await conn.run_sync(_migrate_tasks_cols)
+        logger.info("database_tables_and_columns_verified")
+    except Exception as e:
+        logger.warning("database_init_skipped", error=str(e), hint="Running in local mode without Docker DB")
 
     # Ensure authorized employees with verified Telegram IDs exist in DB
     try:

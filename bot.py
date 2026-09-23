@@ -792,7 +792,7 @@ async def handle_task_accept(callback: CallbackQuery):
 
         # Янгиланган хабар
         text = (
-            f"📋 <b>ТОПШИРИҚ #{task.id}</b> — ✅ Қабул қилинди\n\n"
+            f"📋 <b>ТОПШИРИҚ #{task.id}</b> — 🟢 Қабул қилинди\n\n"
             f"📌 <b>Мавзу:</b> {task.title}\n"
             f"📝 <b>Тафсилот:</b> {task.description or '—'}\n"
             f"⏰ <b>Муддат:</b> {deadline_str}\n"
@@ -800,25 +800,97 @@ async def handle_task_accept(callback: CallbackQuery):
         )
 
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="✍️ Жавоб/Ҳисобот юбориш", callback_data=f"task_respond_{task.id}")]
+            [
+                InlineKeyboardButton(text="🏁 Бажарилди", callback_data=f"task_done_{task.id}"),
+                InlineKeyboardButton(text="✍️ Жавоб/Ҳисобот юбориш", callback_data=f"task_respond_{task.id}")
+            ]
         ])
 
         try:
             await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
         except Exception:
-            await callback.message.answer(text, reply_markup=keyboard, parse_mode="HTML")
+            try:
+                await callback.message.edit_caption(caption=text, reply_markup=keyboard, parse_mode="HTML")
+            except Exception:
+                await callback.message.answer(text, reply_markup=keyboard, parse_mode="HTML")
 
-    # Раҳбарга хабар
+    # Топшириқ берган шахсга хабар
     try:
-        ceo_chat_id = os.getenv("TELEGRAM_CEO_CHAT_ID") or "5950380558"
+        target_chat = task.creator_chat_id or os.getenv("TELEGRAM_CEO_CHAT_ID") or "5950380558"
         notify_text = (
-            f"✅ <b>Топшириқ #{task_id} қабул қилинди</b>\n"
-            f"👤 Ижрочи: {task.assigned_name}\n"
-            f"📌 Мавзу: {task.title}"
+            f"🟢 <b>Топшириқ #{task_id} қабул қилинди</b>\n\n"
+            f"👤 <b>Ижрочи:</b> {task.assigned_name}\n"
+            f"📌 <b>Мавзу:</b> {task.title}"
         )
-        await callback.bot.send_message(chat_id=ceo_chat_id, text=notify_text, parse_mode="HTML")
+        await callback.bot.send_message(chat_id=target_chat, text=notify_text, parse_mode="HTML")
     except Exception as e:
         logger.error(f"Раҳбарга accept хабари юборишда хатолик: {e}")
+
+
+@router.callback_query(F.data.startswith("task_done_"))
+async def handle_task_done(callback: CallbackQuery):
+    """Ходим топшириқни бажарди — статус completed ва раҳбарга хабар."""
+    await callback.answer("🏁 Топшириқ бажарилди деб белгиланди!")
+
+    task_id_str = callback.data.replace("task_done_", "")
+    try:
+        task_id = int(task_id_str)
+    except ValueError:
+        return
+
+    now_local = datetime.now(UZ_TZ)
+
+    async with AsyncSessionLocal() as session:
+        task = await session.get(Task, task_id)
+        if not task:
+            await callback.message.answer("❌ Топшириқ топилмади.")
+            return
+
+        task.status = "completed"
+        task.updated_at = datetime.utcnow()
+        await session.commit()
+
+        text = (
+            f"🏁 <b>ТОПШИРИҚ БАЖАРИЛДИ! #{task.id}</b>\n\n"
+            f"📌 <b>Мавзу:</b> {task.title}\n"
+            f"📝 <b>Тафсилот:</b> {task.description or '—'}\n"
+            f"📊 <b>Статус:</b> 🟢 Бажарилди\n"
+            f"⏰ <b>Вақт:</b> {now_local.strftime('%d.%m.%Y %H:%M')}"
+        )
+        try:
+            await callback.message.edit_text(text, parse_mode="HTML")
+        except Exception:
+            try:
+                await callback.message.edit_caption(caption=text, parse_mode="HTML")
+            except Exception:
+                await callback.message.answer(text, parse_mode="HTML")
+
+        # Топшириқ берган шахсга (creator_chat_id) хабар бериш
+        target_chat = task.creator_chat_id or os.getenv("TELEGRAM_CEO_CHAT_ID") or "5950380558"
+        try:
+            creator_text = (
+                f"🏁 <b>ВАЗИФА БАЖАРИЛДИ!</b>\n\n"
+                f"Ходим <b>{task.assigned_name}</b> вазифани бажарди.\n\n"
+                f"📋 <b>Топшириқ #{task.id}:</b> {task.title}\n"
+                f"⏰ <b>Бажарилган вақт:</b> {now_local.strftime('%d.%m.%Y %H:%M')}\n"
+                f"🌐 <a href='https://santexnika.onrender.com/dashboard#tasks'>Дашбордда кўриш</a>"
+            )
+            await callback.bot.send_message(chat_id=target_chat, text=creator_text, parse_mode="HTML")
+        except Exception as e:
+            logger.error(f"Раҳбарга task_done хабари юборишда хатолик: {e}")
+
+        # Агар кузатувчи бўлса унга ҳам хабар
+        if task.observer_telegram_id and task.observer_telegram_id != target_chat:
+            try:
+                obs_text = (
+                    f"👁 <b>НАЗОРАТ: Вазифа бажарилди</b>\n\n"
+                    f"Ходим <b>{task.assigned_name}</b> вазифани бажарди.\n\n"
+                    f"📋 <b>Топшириқ #{task.id}:</b> {task.title}\n"
+                    f"⏰ <b>Бажарилган вақт:</b> {now_local.strftime('%d.%m.%Y %H:%M')}"
+                )
+                await callback.bot.send_message(chat_id=task.observer_telegram_id, text=obs_text, parse_mode="HTML")
+            except Exception as e:
+                logger.error(f"Кузатувчига task_done хабари юборишда хатолик: {e}")
 
 
 @router.callback_query(F.data.startswith("task_respond_"))
@@ -926,6 +998,235 @@ async def handle_task_response_text(message: types.Message, state: FSMContext):
             logger.error(f"Кузатувчига жавоб хабари юборишда хатолик: {e}")
 
 
+# ═══════════════ ОВОЗЛИ ВА ЁЗМА ТОПШИРИҚЛАРНИ ҚАБУЛ ҚИЛИШ ═══════════════
+
+@router.message(F.voice)
+async def handle_voice_task(message: types.Message):
+    """
+    Раҳбар ёки менежер ботга овозли хабар юборганда:
+    1. Овозни сақлаш ва Faster-Whisper / OpenAI STT орқали матнга ўгириш.
+    2. Матндан ижрочи (authorized_employees), топшириқ мазмуни ва муддатни ажратиб олиш.
+    3. Топшириқни tasks жадвалига сақлаш ва ижрочи ходимга Telegram орқали овозли хабар юбориш.
+    """
+    emp = await get_authorized_employee(message.from_user.id)
+    creator_name = emp.employee_name if emp else (message.from_user.full_name or "Раҳбарият")
+
+    wait_msg = await message.answer("🎙 <i>Овозли хабар қабул қилинди. Таҳлил қилинмоқда, илтимос кутинг...</i>", parse_mode="HTML")
+
+    try:
+        import uuid
+        import time
+        from pathlib import Path
+        from services.task_parser import transcribe_audio, parse_task_instruction
+
+        upload_dir = Path(BASE_DIR) / "static" / "uploads" / "voice_tasks"
+        upload_dir.mkdir(parents=True, exist_ok=True)
+        unique_name = f"bot_voice_{uuid.uuid4().hex[:12]}_{int(time.time())}.ogg"
+        voice_disk_path = upload_dir / unique_name
+
+        # Овозни серверга юклаб олиш
+        await message.bot.download(message.voice, destination=voice_disk_path)
+
+        # STT транскрипция (Faster-Whisper / OpenAI)
+        transcribed_text = transcribe_audio(str(voice_disk_path))
+
+        if not transcribed_text or not transcribed_text.strip():
+            await wait_msg.edit_text(
+                "⚠️ <b>Овозни матнга ўгиришнинг иложи бўлмади.</b>\n"
+                "Илтимос, тиниқроқ овоз ёзиб ёки матн кўринишида қайта юборинг.",
+                parse_mode="HTML"
+            )
+            return
+
+        # Базадаги фаол ходимлар рўйхати билан солиштириш
+        async with AsyncSessionLocal() as session:
+            stmt = select(AuthorizedEmployee).where(AuthorizedEmployee.is_active == 1)
+            res = await session.execute(stmt)
+            employees = res.scalars().all()
+
+            parsed = parse_task_instruction(transcribed_text, employees)
+            assignee = parsed.get("assignee")
+
+            if not assignee:
+                await wait_msg.edit_text(
+                    f"🎙 <b>Овозли хабар матнга ўгирилди:</b>\n\n"
+                    f"<i>«{transcribed_text}»</i>\n\n"
+                    f"⚠️ <b>Ижрочи ходим аниқланмади.</b>\n"
+                    f"Илтимос, топшириқ бераётганда ходим исмини ҳам айтинг (масалан: <i>«Латипов, дўкондаги қолдиқларни ҳисоблагин...»</i> ёки <i>«Джумаева, шартномаларни тайёрланг...»</i>).",
+                    parse_mode="HTML"
+                )
+                return
+
+            task_title = parsed["task_text"][:250] if parsed["task_text"] else transcribed_text[:250]
+            task_desc = transcribed_text
+            voice_url = f"/static/uploads/voice_tasks/{unique_name}"
+
+            task = Task(
+                title=task_title,
+                description=task_desc,
+                creator_name=creator_name,
+                creator_chat_id=message.from_user.id,
+                assigned_to=assignee.id,
+                assigned_name=assignee.employee_name,
+                assigned_telegram_id=assignee.telegram_id,
+                deadline=parsed["deadline_dt"],
+                status="new",
+                voice_url=voice_url,
+                voice_file_id=message.voice.file_id,
+            )
+            session.add(task)
+            await session.commit()
+            await session.refresh(task)
+
+            # Ижрочига овозли хабар ва инлайн тугмаларни юбориш
+            if assignee.telegram_id:
+                assignee_kb = InlineKeyboardMarkup(inline_keyboard=[
+                    [
+                        InlineKeyboardButton(text="🟢 Қабул қилдим", callback_data=f"task_accept_{task.id}"),
+                        InlineKeyboardButton(text="🏁 Бажарилди", callback_data=f"task_done_{task.id}"),
+                    ],
+                    [
+                        InlineKeyboardButton(text="✍️ Жавоб юбориш", callback_data=f"task_respond_{task.id}"),
+                    ]
+                ])
+                caption = (
+                    f"🎙 <b>СИЗГА ЯНГИ ОВОЗЛИ ТОПШИРИҚ БЕРИЛДИ! #{task.id}</b>\n\n"
+                    f"👤 <b>Ким берди:</b> {creator_name}\n"
+                    f"📌 <b>Мавзу:</b> {task.title}\n"
+                    f"⏰ <b>Муддат:</b> {parsed['deadline_str']}\n"
+                    f"💬 <b>Матн:</b> <i>«{transcribed_text}»</i>\n\n"
+                    f"<i>Илтимос, вазифани ўз вақтида бажаринг!</i>"
+                )
+                try:
+                    await message.bot.send_voice(
+                        chat_id=assignee.telegram_id,
+                        voice=message.voice.file_id,
+                        caption=caption,
+                        reply_markup=assignee_kb,
+                        parse_mode="HTML"
+                    )
+                    logger.info(f"Овозли топшириқ {assignee.employee_name} га муваффақиятли юборилди")
+                except Exception as ex:
+                    logger.warning(f"Ижрочига овоз юборишда хатолик: {ex}")
+                    await message.bot.send_message(
+                        chat_id=assignee.telegram_id,
+                        text=caption,
+                        reply_markup=assignee_kb,
+                        parse_mode="HTML"
+                    )
+
+            # Топшириқ берган шахсга тасдиқ
+            confirm_text = (
+                f"✅ <b>Овозли топшириқ муваффақиятли яратилди! #{task.id}</b>\n\n"
+                f"👤 <b>Ижрочи:</b> {assignee.employee_name}\n"
+                f"📌 <b>Мазмуни:</b> {task.title}\n"
+                f"⏰ <b>Муддати:</b> {parsed['deadline_str']}\n"
+                f"💬 <b>Транскрипция:</b> <i>«{transcribed_text}»</i>\n\n"
+                f"🚀 <i>Ижрочининг шахсий Telegram'ига юборилди ва дашбордга киритилди!</i>\n"
+                f"🌐 <a href='https://santexnika.onrender.com/dashboard#tasks'>Дашбордда кўриш</a>"
+            )
+            await wait_msg.edit_text(confirm_text, parse_mode="HTML")
+
+    except Exception as e:
+        logger.error(f"Voice task error: {e}")
+        await wait_msg.edit_text(f"❌ Овозли топшириқ яратишда хатолик юз берди: {e}")
+
+
+@router.message(F.text & ~F.text.startswith("/") & ~F.text.contains("Ишга келдим") & ~F.text.contains("Ишдан кетдим") & ~F.text.contains("Бекор қилиш"))
+async def handle_text_task_or_query(message: types.Message, state: FSMContext):
+    """
+    Раҳбар ёки ходим матнли топшириқ юборганда:
+    Агар матнда ходим исми (масалан: 'Латипов, ...') бўлса, топшириқ яратилади ва ижрочига юборилади.
+    """
+    curr_state = await state.get_state()
+    if curr_state:
+        # Агар FSM да бўлса (масалан: жавоб ёзиш) тегишли handler ишласин
+        return
+
+    text = message.text.strip()
+    if len(text) < 5:
+        return
+
+    try:
+        from services.task_parser import parse_task_instruction
+
+        async with AsyncSessionLocal() as session:
+            stmt = select(AuthorizedEmployee).where(AuthorizedEmployee.is_active == 1)
+            res = await session.execute(stmt)
+            employees = res.scalars().all()
+
+            parsed = parse_task_instruction(text, employees)
+            assignee = parsed.get("assignee")
+
+            # Агар ходим номи топилмаса, шунчаки ўтказиб юборамиз
+            if not assignee:
+                return
+
+            emp = await get_authorized_employee(message.from_user.id)
+            creator_name = emp.employee_name if emp else (message.from_user.full_name or "Раҳбарият")
+
+            task_title = parsed["task_text"][:250] if parsed["task_text"] else text[:250]
+            task_desc = text
+
+            task = Task(
+                title=task_title,
+                description=task_desc,
+                creator_name=creator_name,
+                creator_chat_id=message.from_user.id,
+                assigned_to=assignee.id,
+                assigned_name=assignee.employee_name,
+                assigned_telegram_id=assignee.telegram_id,
+                deadline=parsed["deadline_dt"],
+                status="new",
+            )
+            session.add(task)
+            await session.commit()
+            await session.refresh(task)
+
+            # Ижрочига хабар юбориш
+            if assignee.telegram_id:
+                assignee_kb = InlineKeyboardMarkup(inline_keyboard=[
+                    [
+                        InlineKeyboardButton(text="🟢 Қабул қилдим", callback_data=f"task_accept_{task.id}"),
+                        InlineKeyboardButton(text="🏁 Бажарилди", callback_data=f"task_done_{task.id}"),
+                    ],
+                    [
+                        InlineKeyboardButton(text="✍️ Жавоб юбориш", callback_data=f"task_respond_{task.id}"),
+                    ]
+                ])
+                msg = (
+                    f"📋 <b>СИЗГА ЯНГИ ТОПШИРИҚ БЕРИЛДИ! #{task.id}</b>\n\n"
+                    f"👤 <b>Ким берди:</b> {creator_name}\n"
+                    f"📌 <b>Мавзу:</b> {task.title}\n"
+                    f"⏰ <b>Муддат:</b> {parsed['deadline_str']}\n"
+                    f"📝 <b>Тафсилот:</b> {task.description}\n\n"
+                    f"<i>Илтимос, вазифани ўз вақтида бажаринг!</i>"
+                )
+                try:
+                    await message.bot.send_message(
+                        chat_id=assignee.telegram_id,
+                        text=msg,
+                        reply_markup=assignee_kb,
+                        parse_mode="HTML"
+                    )
+                except Exception as ex:
+                    logger.warning(f"Ижрочига матнли топшириқ юборишда хатолик: {ex}")
+
+            # Раҳбарга тасдиқ хабари
+            confirm_text = (
+                f"✅ <b>Топшириқ яратилди ва юборилди! #{task.id}</b>\n\n"
+                f"👤 <b>Ижрочи:</b> {assignee.employee_name}\n"
+                f"📌 <b>Мазмуни:</b> {task.title}\n"
+                f"⏰ <b>Муддати:</b> {parsed['deadline_str']}\n\n"
+                f"🚀 <i>Ижрочининг шахсий Telegram'ига юборилди ва дашбордга киритилди!</i>\n"
+                f"🌐 <a href='https://santexnika.onrender.com/dashboard#tasks'>Дашбордда кўриш</a>"
+            )
+            await message.answer(confirm_text, reply_markup=get_main_keyboard(), parse_mode="HTML")
+
+    except Exception as e:
+        logger.error(f"Text task error: {e}")
+
+
 # ═══════════════ ASOSIY ISHGA TUSHIRISH FUNKSIYASI ═══════════════
 
 async def main():
@@ -934,9 +1235,26 @@ async def main():
         print("❌ TELEGRAM_BOT_TOKEN топилмади ёки тест ҳолатида!")
         return
 
-    # Ma'lumotlar bazasi jadvallarini tekshirish
+    # Ma'lumotlar bazasi jadvallarini tekshirish va ustunlarni avto-yangilash
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        def _migrate_tasks_cols(sync_conn):
+            try:
+                cursor = sync_conn.connection.cursor()
+                cursor.execute("PRAGMA table_info(tasks);")
+                cols = {row[1] for row in cursor.fetchall()}
+                if cols:
+                    if "creator_name" not in cols:
+                        cursor.execute("ALTER TABLE tasks ADD COLUMN creator_name VARCHAR(255);")
+                    if "creator_chat_id" not in cols:
+                        cursor.execute("ALTER TABLE tasks ADD COLUMN creator_chat_id BIGINT;")
+                    if "voice_file_id" not in cols:
+                        cursor.execute("ALTER TABLE tasks ADD COLUMN voice_file_id VARCHAR(255);")
+                    if "voice_url" not in cols:
+                        cursor.execute("ALTER TABLE tasks ADD COLUMN voice_url VARCHAR(500);")
+            except Exception as ex:
+                logger.warning(f"tasks columns migration warning: {ex}")
+        await conn.run_sync(_migrate_tasks_cols)
 
     bot = Bot(token=token)
     dp = Dispatcher(storage=MemoryStorage())

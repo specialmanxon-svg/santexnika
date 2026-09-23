@@ -23,26 +23,38 @@ UZ_TZ = timezone(timedelta(hours=5))
 # ── Pydantic Schemas ────────────────────────────────────────────
 
 class TaskCreate(BaseModel):
-    title: str = Field(..., description="Топшириқ мавзуси")
+    title: Optional[str] = Field(None, description="Топшириқ мавзуси")
     description: Optional[str] = Field(None, description="Батафсил матн/сўров")
-    assigned_to: int = Field(..., description="Ижрочи ходим ID")
-    assigned_name: str = Field(..., description="Ижрочи ходим исми")
-    observer_id: Optional[int] = Field(None, description="Кузатувчи ходим ID")
+    title_and_description: Optional[str] = Field(None, description="Топшириқ мазмуни / тўлиқ матни")
+    assigned_to: Optional[Any] = Field(None, description="Ижрочи ходим ID")
+    assigned_name: Optional[str] = Field(None, description="Ижрочи ходим исми")
+    assignee_name: Optional[str] = Field(None, description="Ижрочи исми (алиас)")
+    assignee_chat_id: Optional[int] = Field(None, description="Ижрочи Telegram ID")
+    creator_name: Optional[str] = Field(None, description="Топшириқ берган шахс исми")
+    creator_chat_id: Optional[int] = Field(None, description="Топшириқ берган шахс telegram id'си")
+    observer_id: Optional[Any] = Field(None, description="Кузатувчи ходим ID")
     observer_name: Optional[str] = Field(None, description="Кузатувчи ходим исми")
     deadline: Optional[str] = Field(None, description="Муддат ISO формат (YYYY-MM-DDTHH:MM)")
     voice_url: Optional[str] = Field(None, description="Овозли хабар URL")
+    voice_file_id: Optional[str] = Field(None, description="Telegram voice file ID")
 
 
 class TaskUpdate(BaseModel):
     title: Optional[str] = None
     description: Optional[str] = None
+    title_and_description: Optional[str] = None
+    creator_name: Optional[str] = None
+    creator_chat_id: Optional[int] = None
     assigned_to: Optional[int] = None
     assigned_name: Optional[str] = None
+    assignee_name: Optional[str] = None
+    assignee_chat_id: Optional[int] = None
     observer_id: Optional[int] = None
     observer_name: Optional[str] = None
     deadline: Optional[str] = None
     status: Optional[str] = None
     voice_url: Optional[str] = None
+    voice_file_id: Optional[str] = None
 
 
 class TaskResponse(BaseModel):
@@ -50,26 +62,32 @@ class TaskResponse(BaseModel):
 
 
 class TaskStatusUpdate(BaseModel):
-    status: str = Field(..., description="Янги статус: new, in_progress, completed, expired")
+    status: str = Field(..., description="Янги статус: new, in_progress, completed, overdue, expired")
 
 
 class TaskOut(BaseModel):
     id: int
     title: str
-    description: Optional[str]
+    description: Optional[str] = None
+    title_and_description: Optional[str] = None
+    creator_name: Optional[str] = None
+    creator_chat_id: Optional[int] = None
     assigned_to: int
     assigned_name: str
     assigned_telegram_id: Optional[int] = None
-    observer_id: Optional[int]
-    observer_name: Optional[str]
+    assignee_name: Optional[str] = None
+    assignee_chat_id: Optional[int] = None
+    observer_id: Optional[int] = None
+    observer_name: Optional[str] = None
     observer_telegram_id: Optional[int] = None
-    deadline: Optional[str]
+    deadline: Optional[str] = None
     status: str
-    employee_response: Optional[str]
+    employee_response: Optional[str] = None
     voice_url: Optional[str] = None
+    voice_file_id: Optional[str] = None
     reminder_sent: int = 0
-    created_at: Optional[str]
-    updated_at: Optional[str]
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
 
 
 # ── Helper: Ходим маълумотлари ва Telegram Chat ID олиш ─────────────
@@ -155,6 +173,7 @@ async def _send_task_notification_to_employee(task: Task, assignee: Optional[Dic
     chat_id = task.assigned_telegram_id or (assignee.get("telegram_chat_id") if assignee else None)
     emp_name = (assignee.get("name") if assignee else task.assigned_name) or "Ходим"
     obs_name = (observer.get("name") if observer else task.observer_name) or "Йўқ"
+    creator_str = task.creator_name or "Раҳбарият"
 
     if not chat_id:
         print(f"WARNING: Ходимда telegram_chat_id мавжуд эмас! ({emp_name})")
@@ -176,6 +195,9 @@ async def _send_task_notification_to_employee(task: Task, assignee: Optional[Dic
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [
                 InlineKeyboardButton(text="🟢 Қабул қилдим", callback_data=f"task_accept_{task.id}"),
+                InlineKeyboardButton(text="🏁 Бажарилди", callback_data=f"task_done_{task.id}"),
+            ],
+            [
                 InlineKeyboardButton(text="✍️ Жавоб юбориш", callback_data=f"task_respond_{task.id}"),
             ]
         ])
@@ -186,6 +208,7 @@ async def _send_task_notification_to_employee(task: Task, assignee: Optional[Dic
             if voice_disk_path.exists():
                 caption = (
                     f"🎙 <b>СИЗГА ЯНГИ ОВОЗЛИ ТОПШИРИҚ БЕРИЛДИ! #{task.id}</b>\n\n"
+                    f"👤 <b>Ким берди:</b> {creator_str}\n"
                     f"📌 <b>Мавзу:</b> {task.title}\n"
                     f"📝 <b>Тафсилот:</b> {task.description or '—'}\n"
                     f"⏰ <b>Муддат:</b> {deadline_str}\n"
@@ -209,7 +232,8 @@ async def _send_task_notification_to_employee(task: Task, assignee: Optional[Dic
 
         if not voice_sent:
             msg = (
-                f"📋 <b>СИЗГА ЯНГИ ТОПШИРИҚ БЕРИЛДИ!</b>\n\n"
+                f"📋 <b>СИЗГА ЯНГИ ТОПШИРИҚ БЕРИЛДИ! #{task.id}</b>\n\n"
+                f"👤 <b>Ким берди:</b> {creator_str}\n"
                 f"📌 <b>Мавзу:</b> {task.title}\n"
                 f"📝 <b>Тафсилот:</b> {task.description or '—'}\n"
                 f"⏰ <b>Муддат:</b> {deadline_str}\n"
@@ -349,9 +373,14 @@ def _task_to_out(t: Task) -> TaskOut:
         id=t.id,
         title=t.title,
         description=t.description,
+        title_and_description=f"{t.title}\n{t.description}" if t.description else t.title,
+        creator_name=t.creator_name,
+        creator_chat_id=t.creator_chat_id,
         assigned_to=t.assigned_to,
         assigned_name=t.assigned_name,
         assigned_telegram_id=t.assigned_telegram_id,
+        assignee_name=t.assigned_name,
+        assignee_chat_id=t.assigned_telegram_id,
         observer_id=t.observer_id,
         observer_name=t.observer_name,
         observer_telegram_id=t.observer_telegram_id,
@@ -359,24 +388,56 @@ def _task_to_out(t: Task) -> TaskOut:
         status=t.status,
         employee_response=t.employee_response,
         voice_url=t.voice_url,
+        voice_file_id=t.voice_file_id,
         reminder_sent=t.reminder_sent or 0,
         created_at=t.created_at.isoformat() if t.created_at else None,
         updated_at=t.updated_at.isoformat() if t.updated_at else None,
     )
 
 
+async def _notify_creator_task_completed(task: Task):
+    """Топшириқ бажарилганда раҳбар ёки яратувчига хабар бериш."""
+    target_chat = task.creator_chat_id
+    if not target_chat:
+        import os
+        from config import settings
+        target_chat = os.getenv("TELEGRAM_CEO_CHAT_ID") or getattr(settings, "telegram_ceo_chat_id", "5950380558")
+
+    if not target_chat:
+        return
+
+    try:
+        bot = get_bot()
+        now_local = datetime.now(UZ_TZ)
+        text = (
+            f"🏁 <b>ВАЗИФА БАЖАРИЛДИ!</b>\n\n"
+            f"Ходим <b>{task.assigned_name}</b> вазифани бажарди.\n\n"
+            f"📋 <b>Топшириқ #{task.id}:</b> {task.title}\n"
+            f"⏰ <b>Бажарилди:</b> {now_local.strftime('%d.%m.%Y %H:%M')}\n"
+            f"🌐 <a href='https://santexnika.onrender.com/dashboard#tasks'>Дашбордда кўриш</a>"
+        )
+        await bot.send_message(chat_id=target_chat, text=text, parse_mode="HTML")
+        await bot.session.close()
+    except Exception as e:
+        logger.warning("notify_creator_completed_failed", error=str(e))
+
+
 # ── Endpoints ───────────────────────────────────────────────────
 
 @router.get("/", response_model=List[TaskOut])
 @router.get("", response_model=List[TaskOut])
+@router.get("/list", response_model=List[TaskOut])
 async def list_tasks(
-    status: Optional[str] = Query(None, description="Статус фильтри: new, in_progress, completed, expired"),
+    status: Optional[str] = Query(None, description="Статус фильтри: new, in_progress, completed, expired, overdue"),
 ):
     """Барча топшириқлар рўйхати (статус бўйича фильтр)."""
     async with AsyncSessionLocal() as session:
         q = select(Task).order_by(desc(Task.created_at))
         if status:
-            q = q.where(Task.status == status)
+            st = status.lower().strip()
+            if st == "overdue":
+                st = "expired"
+            q = q.where(Task.status == st)
         result = await session.execute(q)
         tasks = result.scalars().all()
         return [_task_to_out(t) for t in tasks]
@@ -384,23 +445,39 @@ async def list_tasks(
 
 @router.post("/", response_model=TaskOut, status_code=201)
 @router.post("", response_model=TaskOut, status_code=201)
+@router.post("/create", response_model=TaskOut, status_code=201)
 async def create_task(data: TaskCreate):
     """Янги топшириқ яратиш ва Telegram орқали хабар юбориш."""
     async with AsyncSessionLocal() as session:
+        # Title and description extraction
+        task_title = data.title
+        task_desc = data.description
+        if not task_title and data.title_and_description:
+            lines = [ln.strip() for ln in data.title_and_description.strip().split("\n") if ln.strip()]
+            if lines:
+                task_title = lines[0][:200]
+                task_desc = "\n".join(lines[1:]) if len(lines) > 1 else None
+            else:
+                task_title = "Янги топшириқ"
+        elif not task_title:
+            task_title = "Янги топшириқ"
+
         # 1. Ходимларнинг telegram_chat_id сини топиш
-        assignee = await get_employee_by_id_or_name(session, data.assigned_to, data.assigned_name)
+        assign_target = data.assigned_to or data.assignee_chat_id or data.assignee_name or data.assigned_name
+        assign_name = data.assigned_name or data.assignee_name
+        assignee = await get_employee_by_id_or_name(session, assign_target, assign_name)
         observer = await get_employee_by_id_or_name(session, data.observer_id, data.observer_name) if data.observer_id else None
 
-        assigned_tg_id = assignee.get("telegram_chat_id") if assignee else None
+        assigned_tg_id = data.assignee_chat_id or (assignee.get("telegram_chat_id") if assignee else None)
         observer_tg_id = observer.get("telegram_chat_id") if observer else None
-        assigned_name = assignee.get("name") if assignee else data.assigned_name
+        assigned_name = assignee.get("name") if assignee else (data.assignee_name or data.assigned_name or "Ходим")
         observer_name = observer.get("name") if observer else data.observer_name
-        assigned_to_id = assignee.get("id") if assignee else (int(data.assigned_to) if str(data.assigned_to).isdigit() else 0)
+        assigned_to_id = assignee.get("id") if assignee else (int(data.assigned_to) if data.assigned_to and str(data.assigned_to).isdigit() else 0)
         observer_to_id = observer.get("id") if observer else (int(data.observer_id) if data.observer_id and str(data.observer_id).isdigit() else None)
 
         if not assigned_tg_id:
-            print(f"WARNING: Ходимда telegram_chat_id мавжуд эмас! (Ижрочи: {data.assigned_name}, ID: {data.assigned_to})")
-            logger.warning("assignee_no_telegram_id", employee=data.assigned_name, id=data.assigned_to)
+            print(f"WARNING: Ходимда telegram_chat_id мавжуд эмас! (Ижрочи: {assigned_name}, ID: {data.assigned_to})")
+            logger.warning("assignee_no_telegram_id", employee=assigned_name, id=data.assigned_to)
         else:
             print(f"DEBUG: Ижрочи топилди: {assigned_name} (chat_id: {assigned_tg_id})")
 
@@ -419,8 +496,10 @@ async def create_task(data: TaskCreate):
                 raise HTTPException(status_code=400, detail="Нотўғри муддат формати. ISO формат керак: YYYY-MM-DDTHH:MM")
 
         task = Task(
-            title=data.title,
-            description=data.description,
+            title=task_title,
+            description=task_desc,
+            creator_name=data.creator_name or "Раҳбарият",
+            creator_chat_id=data.creator_chat_id,
             assigned_to=assigned_to_id,
             assigned_name=assigned_name,
             assigned_telegram_id=assigned_tg_id,
@@ -430,6 +509,7 @@ async def create_task(data: TaskCreate):
             deadline=deadline_dt,
             status="new",
             voice_url=data.voice_url,
+            voice_file_id=data.voice_file_id,
         )
         session.add(task)
         await session.commit()
@@ -451,6 +531,8 @@ async def create_task_with_voice(
     description: Optional[str] = Form(None),
     assigned_to: Any = Form(...),
     assigned_name: str = Form(...),
+    creator_name: Optional[str] = Form(None),
+    creator_chat_id: Optional[int] = Form(None),
     observer_id: Optional[Any] = Form(None),
     observer_name: Optional[str] = Form(None),
     deadline: Optional[str] = Form(None),
@@ -519,6 +601,8 @@ async def create_task_with_voice(
         task = Task(
             title=title,
             description=description,
+            creator_name=creator_name or "Раҳбарият",
+            creator_chat_id=creator_chat_id,
             assigned_to=assigned_to_id,
             assigned_name=final_assigned_name,
             assigned_telegram_id=assigned_tg_id,
@@ -555,6 +639,10 @@ async def update_task(task_id: int, data: TaskUpdate):
             task.title = data.title
         if data.description is not None:
             task.description = data.description
+        if data.creator_name is not None:
+            task.creator_name = data.creator_name
+        if data.creator_chat_id is not None:
+            task.creator_chat_id = data.creator_chat_id
         if data.status is not None:
             task.status = data.status
         if data.assigned_to is not None:
@@ -600,11 +688,8 @@ async def respond_to_task(task_id: int, data: TaskResponse):
 
         # Раҳбарга хабар (Telegram)
         try:
-            from services.telegram_bot_service import create_bot_and_dispatcher
-            bot, _ = create_bot_and_dispatcher()
-
-            import os
-            ceo_chat_id = os.getenv("TELEGRAM_CEO_CHAT_ID") or "5950380558"
+            bot = get_bot()
+            ceo_chat_id = task.creator_chat_id or os.getenv("TELEGRAM_CEO_CHAT_ID") or "5950380558"
             text = (
                 f"📩 <b>ХОДИМ ЖАВОБИ — Топшириқ #{task.id}</b>\n\n"
                 f"👤 <b>Ижрочи:</b> {task.assigned_name}\n"
@@ -621,10 +706,15 @@ async def respond_to_task(task_id: int, data: TaskResponse):
 
 
 @router.put("/{task_id}/status", response_model=TaskOut)
+@router.patch("/{task_id}/status", response_model=TaskOut)
 async def update_task_status(task_id: int, data: TaskStatusUpdate):
     """Топшириқ статусини ўзгартириш."""
+    new_status = data.status.lower().strip()
+    if new_status == "overdue":
+        new_status = "expired"
+
     valid_statuses = ["new", "in_progress", "completed", "expired"]
-    if data.status not in valid_statuses:
+    if new_status not in valid_statuses:
         raise HTTPException(status_code=400, detail=f"Нотўғри статус. Мумкин: {', '.join(valid_statuses)}")
 
     async with AsyncSessionLocal() as session:
@@ -632,10 +722,16 @@ async def update_task_status(task_id: int, data: TaskStatusUpdate):
         if not task:
             raise HTTPException(status_code=404, detail="Топшириқ топилмади")
 
-        task.status = data.status
+        prev_status = task.status
+        task.status = new_status
         task.updated_at = datetime.utcnow()
         await session.commit()
         await session.refresh(task)
+
+        # Агар вазифа бажарилган бўлса, топшириқ берган раҳбарга бот орқали хабар юбориш
+        if new_status == "completed" and prev_status != "completed":
+            await _notify_creator_task_completed(task)
+
         return _task_to_out(task)
 
 

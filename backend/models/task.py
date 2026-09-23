@@ -14,6 +14,10 @@ class Task(Base):
     title: Mapped[str] = mapped_column(String(300), nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
 
+    # Ким берди (Раҳбар / Менежер)
+    creator_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    creator_chat_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+
     # Ижрочи ходим
     assigned_to: Mapped[int] = mapped_column(Integer, index=True, nullable=False)
     assigned_name: Mapped[str] = mapped_column(String(255), nullable=False)
@@ -27,14 +31,15 @@ class Task(Base):
     # Муддат
     deadline: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
-    # Статус: new, in_progress, completed, expired
+    # Статус: new, in_progress, completed, overdue / expired
     status: Mapped[str] = mapped_column(String(32), default="new", nullable=False)
 
     # Ходим жавоби / ҳисоботи
     employee_response: Mapped[str | None] = mapped_column(Text, nullable=True)
 
-    # Овозли хабар файли йўли
+    # Овозли хабар файли йўли ва Telegram voice_file_id
     voice_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    voice_file_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
     # Эслатма юборилганми
     reminder_sent: Mapped[int] = mapped_column(Integer, default=0)
@@ -43,3 +48,17 @@ class Task(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
     )
+
+    @property
+    def assignee_name(self) -> str:
+        return self.assigned_name
+
+    @property
+    def assignee_chat_id(self) -> int | None:
+        return self.assigned_telegram_id
+
+    @property
+    def title_and_description(self) -> str:
+        if self.description:
+            return f"{self.title}\n{self.description}"
+        return self.title

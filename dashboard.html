@@ -789,12 +789,12 @@
                     <thead>
                         <tr>
                             <th class="w-12">#</th>
-                            <th>Мавзу</th>
+                            <th>Ким берди</th>
                             <th>Ижрочи</th>
-                            <th>Кузатувчи</th>
-                            <th>Муддат</th>
+                            <th>Топшириқ мазмуни</th>
+                            <th>Овозли хабар</th>
+                            <th>Муддати</th>
                             <th>Статус</th>
-                            <th>Ходим жавоби</th>
                             <th>Амаллар</th>
                         </tr>
                     </thead>
@@ -4118,7 +4118,8 @@ async function loadTasks(statusFilter) {
             'new': '<span class="badge badge-blue">🆕 Янги</span>',
             'in_progress': '<span class="badge badge-yellow">🔄 Жараёнда</span>',
             'completed': '<span class="badge badge-green">✅ Бажарилди</span>',
-            'expired': '<span class="badge badge-red">⏰ Муддати ўтган</span>'
+            'expired': '<span class="badge badge-red">⏰ Муддати ўтган</span>',
+            'overdue': '<span class="badge badge-red">⏰ Муддати ўтган</span>'
         };
         const statusBadge = statusMap[t.status] || `<span class="badge">${t.status}</span>`;
 
@@ -4134,20 +4135,20 @@ async function loadTasks(statusFilter) {
             } catch(e) { deadlineStr = t.deadline; }
         }
 
-        const response = t.employee_response
-            ? `<span class="text-green-700 text-xs">${escapeHtml((t.employee_response || '').substring(0, 80))}${t.employee_response.length > 80 ? '...' : ''}</span>`
+        const creator = escapeHtml(t.creator_name || 'Раҳбарият');
+        const assignee = escapeHtml(t.assigned_name || t.assignee_name || '—');
+        const observerBadge = t.observer_name ? `<div class="text-[11px] text-gray-400 mt-0.5">👁 Кузатувчи: ${escapeHtml(t.observer_name)}</div>` : '';
+
+        // Овозли хабар бўлса тўғридан-тўғри аудио плеер
+        const voicePlayerHtml = t.voice_url
+            ? `<div class="flex items-center gap-1.5 bg-blue-50/70 p-1 rounded border border-blue-100 max-w-fit">
+                 <audio controls preload="none" src="${t.voice_url}" class="h-8 w-44"></audio>
+               </div>`
             : '<span class="text-gray-400 text-xs">—</span>';
 
-        // Овозли топшириқ бўлса аудио плеер тугмаси/вижети
-        let voicePlayerHtml = '';
-        if (t.voice_url) {
-            voicePlayerHtml = `
-                <div class="mt-1.5 flex items-center gap-1.5 bg-blue-50/80 px-2 py-1 rounded-lg border border-blue-100 max-w-fit">
-                    <span class="text-xs" title="Овозли хабар">🎙</span>
-                    <audio controls preload="none" src="${t.voice_url}" class="h-6 w-40"></audio>
-                </div>
-            `;
-        }
+        const responseHtml = t.employee_response
+            ? `<div class="mt-1 text-xs text-green-700 bg-green-50 p-1.5 rounded border border-green-200"><b>Жавоб:</b> ${escapeHtml(t.employee_response)}</div>`
+            : '';
 
         const actions = [];
         if (t.status === 'new' || t.status === 'in_progress') {
@@ -4159,20 +4160,20 @@ async function loadTasks(statusFilter) {
         return `
             <tr class="hover:bg-gray-50/70 transition">
                 <td class="text-gray-400 font-medium">${t.id}</td>
+                <td class="font-medium text-gray-800">${creator}</td>
                 <td>
-                    <div class="font-semibold text-gray-900 flex items-center gap-1.5">
-                        ${escapeHtml(t.title || '')}
-                        ${t.voice_url ? '<span class="text-[10px] bg-blue-100 text-blue-800 px-1.5 py-0.2 rounded font-medium">🎙 Овозли</span>' : ''}
-                    </div>
-                    ${t.description ? `<div class="text-xs text-gray-500 mt-0.5">${escapeHtml((t.description || '').substring(0, 60))}${t.description.length > 60 ? '...' : ''}</div>` : ''}
-                    ${voicePlayerHtml}
+                    <div class="font-semibold text-gray-900">${assignee}</div>
+                    ${observerBadge}
                 </td>
-                <td class="font-medium text-gray-800">${escapeHtml(t.assigned_name || '—')}</td>
-                <td class="text-gray-600">${escapeHtml(t.observer_name || '—')}</td>
+                <td>
+                    <div class="font-medium text-gray-900">${escapeHtml(t.title || '')}</div>
+                    ${t.description ? `<div class="text-xs text-gray-500 mt-0.5 whitespace-pre-wrap">${escapeHtml(t.description)}</div>` : ''}
+                    ${responseHtml}
+                </td>
+                <td>${voicePlayerHtml}</td>
                 <td class="num text-sm">${deadlineStr}</td>
                 <td>${statusBadge}</td>
-                <td>${response}</td>
-                <td class="space-x-1">${actions.join(' ')}</td>
+                <td class="space-x-1 whitespace-nowrap">${actions.join(' ')}</td>
             </tr>
         `;
     }).join('');
