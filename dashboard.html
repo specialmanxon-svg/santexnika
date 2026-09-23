@@ -241,6 +241,9 @@
             <button onclick="clearWarehouseFilter()" class="text-blue-600 hover:underline font-bold ml-2">Барчасини кўрсатиш</button>
         </div>
 
+        <!-- 🔍 Тўлиқ товар қидируви ва ABC/XYZ карточкаси контейнери -->
+        <div id="product-search-details-card" class="hidden mb-6"></div>
+
         <!-- Stats Row -->
         <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
             <div class="stat-card bg-white rounded-xl p-4 border border-gray-200 shadow-sm">
@@ -1623,7 +1626,12 @@ function populateBrandDropdown(brands) {
     select.innerHTML = html;
 }
 
+let productSearchDebounceTimer = null;
+let currentSearchedProducts = [];
+let activeSearchedProductIndex = 0;
+
 function onWarehouseFilterChange() {
+    clearTimeout(productSearchDebounceTimer);
     const searchVal = (document.getElementById('searchItemInput')?.value || '').trim();
     const clearBtn = document.getElementById('clearSearchBtn');
     if (clearBtn) {
@@ -1632,11 +1640,21 @@ function onWarehouseFilterChange() {
     }
 
     applyWarehouseFilters();
+
+    // 2 тадан ортиқ ёки тенг белги бўлганда бутун МойСклад базасидан қидириш ва 6 ойлик карточкани чиқариш
+    if (searchVal.length >= 2) {
+        productSearchDebounceTimer = setTimeout(() => {
+            searchProductDetails(searchVal);
+        }, 400);
+    } else {
+        closeProductSearchCard();
+    }
 }
 
 function clearSearchInput() {
     const input = document.getElementById('searchItemInput');
     if (input) input.value = '';
+    closeProductSearchCard();
     onWarehouseFilterChange();
 }
 
@@ -1649,8 +1667,271 @@ function clearWarehouseFilter() {
     const clearBtn = document.getElementById('clearSearchBtn');
     if (clearBtn) clearBtn.classList.add('hidden');
 
+    closeProductSearchCard();
     applyWarehouseFilters();
     toast('Филтрлар бекор қилинди');
+}
+
+function closeProductSearchCard() {
+    const cardEl = document.getElementById('product-search-details-card');
+    if (cardEl) {
+        cardEl.classList.add('hidden');
+        cardEl.innerHTML = '';
+    }
+    currentSearchedProducts = [];
+    activeSearchedProductIndex = 0;
+}
+
+async function searchProductDetails(query) {
+    const cardEl = document.getElementById('product-search-details-card');
+    if (!cardEl) return;
+
+    cardEl.classList.remove('hidden');
+    cardEl.innerHTML = `
+        <div class="bg-white rounded-xl border border-blue-200 p-5 shadow-sm">
+            <div class="flex items-center gap-3 text-blue-700 text-sm font-semibold">
+                <span class="inline-block w-4 h-4 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></span>
+                <span>МойСклад базасидан «${escapeHtml(query)}» бўйича маҳсулот ва 6 ойлик ABC/XYZ кўрсаткичлари қидирилмоқда...</span>
+            </div>
+        </div>
+    `;
+
+    try {
+        const res = await apiFetch('/warehouse/product-details-search?q=' + encodeURIComponent(query), 8000);
+        if (res && res.status === 'success' && res.products && res.products.length > 0) {
+            currentSearchedProducts = res.products;
+            activeSearchedProductIndex = 0;
+            renderProductSearchCard(currentSearchedProducts, 0);
+        } else {
+            cardEl.innerHTML = `
+                <div class="bg-white rounded-xl border border-gray-200 p-4 shadow-sm flex items-center justify-between">
+                    <div class="text-sm text-gray-500">
+                        🔍 «<strong>${escapeHtml(query)}</strong>» сўрови бўйича МойСклад базасидан маҳсулот топилмади.
+                    </div>
+                    <button onclick="closeProductSearchCard()" class="text-gray-400 hover:text-gray-600 text-sm px-2 py-1">✕ Ёпиш</button>
+                </div>
+            `;
+        }
+    } catch (err) {
+        console.warn('searchProductDetails error:', err);
+        cardEl.innerHTML = `
+            <div class="bg-white rounded-xl border border-yellow-200 p-4 shadow-sm flex items-center justify-between">
+                <div class="text-xs text-yellow-700">
+                    ⚠️ Қидирувда вақтинчалик уланиш кечикиши бўлди.
+                </div>
+                <button onclick="closeProductSearchCard()" class="text-gray-400 hover:text-gray-600 text-xs px-2 py-1">✕</button>
+            </div>
+        `;
+    }
+}
+
+function selectSearchedProduct(index) {
+    activeSearchedProductIndex = index;
+    renderProductSearchCard(currentSearchedProducts, index);
+}
+
+function renderProductSearchCard(products, activeIndex) {
+    const cardEl = document.getElementById('product-search-details-card');
+    if (!cardEl || !products || !products.length) return;
+
+    const p = products[activeIndex] || products[0];
+
+    const matrixColorMap = {
+        'AX': { bg: 'bg-emerald-50 text-emerald-800 border-emerald-300', dot: 'bg-emerald-500', badge: 'bg-emerald-100 text-emerald-900 border-emerald-400' },
+        'AY': { bg: 'bg-blue-50 text-blue-800 border-blue-300', dot: 'bg-blue-500', badge: 'bg-blue-100 text-blue-900 border-blue-400' },
+        'AZ': { bg: 'bg-indigo-50 text-indigo-800 border-indigo-300', dot: 'bg-indigo-500', badge: 'bg-indigo-100 text-indigo-900 border-indigo-400' },
+        'BX': { bg: 'bg-teal-50 text-teal-800 border-teal-300', dot: 'bg-teal-500', badge: 'bg-teal-100 text-teal-900 border-teal-400' },
+        'BY': { bg: 'bg-yellow-50 text-yellow-800 border-yellow-300', dot: 'bg-yellow-500', badge: 'bg-yellow-100 text-yellow-900 border-yellow-400' },
+        'BZ': { bg: 'bg-purple-50 text-purple-800 border-purple-300', dot: 'bg-purple-500', badge: 'bg-purple-100 text-purple-900 border-purple-400' },
+        'CX': { bg: 'bg-cyan-50 text-cyan-800 border-cyan-300', dot: 'bg-cyan-500', badge: 'bg-cyan-100 text-cyan-900 border-cyan-400' },
+        'CY': { bg: 'bg-orange-50 text-orange-800 border-orange-300', dot: 'bg-orange-500', badge: 'bg-orange-100 text-orange-900 border-orange-400' },
+        'CZ': { bg: 'bg-red-50 text-red-800 border-red-300', dot: 'bg-red-500', badge: 'bg-red-100 text-red-900 border-red-400' }
+    };
+
+    const matTheme = matrixColorMap[p.abc_xyz_class] || matrixColorMap['CZ'];
+
+    let chipsHtml = '';
+    if (products.length > 1) {
+        chipsHtml = `
+            <div class="mb-4 pb-2 border-b border-gray-100">
+                <div class="text-xs font-semibold text-gray-500 mb-2 flex items-center justify-between">
+                    <span>Топилган товарлар (${products.length} та):</span>
+                    <span class="text-[11px] text-gray-400">Кўриш учун керакли товарни танланг</span>
+                </div>
+                <div class="flex items-center gap-2 overflow-x-auto pb-1">
+                    ${products.map((prod, idx) => {
+                        const isActive = idx === activeIndex;
+                        const activeCls = isActive 
+                            ? 'bg-blue-600 text-white font-bold border-blue-600 shadow-sm' 
+                            : 'bg-gray-100 hover:bg-gray-200 text-gray-700 border-gray-200';
+                        return `
+                            <button onclick="selectSearchedProduct(${idx})" 
+                                class="text-xs px-3 py-1.5 rounded-lg border transition-all whitespace-nowrap flex items-center gap-1.5 ${activeCls}">
+                                <span class="truncate max-w-[160px]">${escapeHtml(prod.name)}</span>
+                                <span class="opacity-75 text-[10px]">(${prod.article !== '—' ? escapeHtml(prod.article) : 'SKU йўқ'})</span>
+                            </button>
+                        `;
+                    }).join('')}
+                </div>
+            </div>
+        `;
+    }
+
+    let marginBadge = '';
+    if (p.buy_price > 0 && p.sale_price > 0) {
+        const marginPct = Math.round(((p.sale_price - p.buy_price) / p.sale_price) * 100);
+        const marginColor = marginPct >= 20 ? 'text-emerald-600 bg-emerald-50' : 'text-amber-600 bg-amber-50';
+        marginBadge = `<span class="text-xs font-semibold px-2 py-0.5 rounded-md ${marginColor}">Маржа: ${marginPct}%</span>`;
+    }
+
+    const monthlyVals = p.monthly_qty || [0, 0, 0, 0, 0, 0];
+    const maxMonthly = Math.max(...monthlyVals, 1);
+    const monthsHtml = monthlyVals.map((v, i) => {
+        const hPct = Math.max(12, Math.round((v / maxMonthly) * 100));
+        return `
+            <div class="flex flex-col items-center flex-1">
+                <div class="text-[10px] text-gray-500 font-bold mb-1">${v > 0 ? v : '0'}</div>
+                <div class="w-full bg-gray-100 rounded-t h-12 flex items-end">
+                    <div class="w-full ${v > 0 ? 'bg-blue-500' : 'bg-gray-200'} rounded-t transition-all" style="height: ${hPct}%;"></div>
+                </div>
+                <div class="text-[9px] text-gray-400 mt-1">${i + 1}-ой</div>
+            </div>
+        `;
+    }).join('');
+
+    cardEl.classList.remove('hidden');
+    cardEl.innerHTML = `
+        <div class="bg-white rounded-2xl border-2 border-blue-400 shadow-md p-5 transition-all">
+            <!-- Header bar -->
+            <div class="flex items-center justify-between pb-3 mb-3 border-b border-gray-100">
+                <div class="flex items-center gap-2">
+                    <span class="text-lg">🔍</span>
+                    <h3 class="font-bold text-gray-900 text-sm md:text-base">Маҳсулот карточкаси ва 6 ойлик ABC/XYZ ҳолати</h3>
+                </div>
+                <button onclick="closeProductSearchCard()" 
+                    class="text-gray-400 hover:text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-full w-7 h-7 flex items-center justify-center text-sm font-bold transition"
+                    title="Ёпиш">
+                    ✕
+                </button>
+            </div>
+
+            <!-- Chips (if multiple) -->
+            ${chipsHtml}
+
+            <!-- 2-Column Grid -->
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <!-- 1-Устун: Товар паспорти ва нархлар -->
+                <div class="space-y-4">
+                    <div>
+                        <div class="flex items-center gap-2 mb-1">
+                            <span class="badge bg-blue-100 text-blue-800 font-bold text-xs px-2.5 py-0.5 rounded-full">
+                                🏷️ ${escapeHtml(p.brand || 'Бошқа')}
+                            </span>
+                            ${p.article !== '—' ? `
+                                <span class="badge bg-gray-100 text-gray-700 text-xs px-2 py-0.5 rounded-md font-mono">
+                                    SKU: ${escapeHtml(p.article)}
+                                </span>
+                            ` : ''}
+                        </div>
+                        <h4 class="text-base font-bold text-gray-900 leading-snug">${escapeHtml(p.name)}</h4>
+                    </div>
+
+                    <div class="grid grid-cols-2 gap-3 bg-gray-50/80 p-3.5 rounded-xl border border-gray-200">
+                        <div>
+                            <div class="text-[11px] text-gray-500 font-medium">Артикул:</div>
+                            <div class="text-xs font-bold text-gray-800 font-mono">${escapeHtml(p.article)}</div>
+                        </div>
+                        <div>
+                            <div class="text-[11px] text-gray-500 font-medium">Код:</div>
+                            <div class="text-xs font-bold text-gray-800 font-mono">${escapeHtml(p.code)}</div>
+                        </div>
+                        <div>
+                            <div class="text-[11px] text-gray-500 font-medium">Харид таннархи:</div>
+                            <div class="text-xs font-bold text-gray-900">${p.buy_price > 0 ? fmt(p.buy_price) + ' сўм' : '—'}</div>
+                        </div>
+                        <div>
+                            <div class="text-[11px] text-gray-500 font-medium">Сотилиш нархи:</div>
+                            <div class="text-xs font-bold text-blue-700">${p.sale_price > 0 ? fmt(p.sale_price) + ' сўм' : '—'}</div>
+                        </div>
+                    </div>
+
+                    <!-- Омбордаги ҳақиқий қолдиқ блоки -->
+                    <div class="flex items-center justify-between p-3.5 rounded-xl border ${p.stock > 0 ? 'bg-emerald-50/60 border-emerald-200 text-emerald-950' : 'bg-gray-50 border-gray-200 text-gray-700'}">
+                        <div>
+                            <div class="text-xs font-semibold text-gray-600">Омбордаги ҳақиқий қолдиқ:</div>
+                            <div class="text-xl font-extrabold ${p.stock > 0 ? 'text-emerald-700' : 'text-gray-500'}">
+                                ${p.stock} <span class="text-xs font-medium">${escapeHtml(p.uom)}</span>
+                            </div>
+                        </div>
+                        <div class="text-right">
+                            ${marginBadge}
+                            <div class="text-[11px] text-gray-500 mt-1">
+                                ${p.stock > 0 ? '✅ Мусбат қолдиқ' : '⚠️ Қолдиқ 0'}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 2-Устун: 6 ойлик сотув ва ABC/XYZ матрицаси -->
+                <div class="space-y-4">
+                    <div class="flex items-center justify-between p-3 rounded-xl border ${matTheme.bg}">
+                        <div>
+                            <div class="text-xs font-bold uppercase tracking-wider text-gray-500">ABC/XYZ Матрица тоифаси</div>
+                            <div class="flex items-center gap-2 mt-0.5">
+                                <span class="w-3 h-3 rounded-full ${matTheme.dot}"></span>
+                                <span class="text-2xl font-black">${p.abc_xyz_class}</span>
+                            </div>
+                        </div>
+                        <div class="text-right">
+                            <span class="badge ${matTheme.badge} text-xs font-extrabold px-3 py-1 rounded-full border">
+                                ${p.order_allowed ? '✅ Буюртма бериш мумкин' : '⛔ Буюртма чекланган'}
+                            </span>
+                        </div>
+                    </div>
+
+                    <!-- 6 ойлик сотув ва ойлик тақсимот -->
+                    <div class="bg-gray-50/80 p-3.5 rounded-xl border border-gray-200">
+                        <div class="flex items-center justify-between mb-2">
+                            <div class="text-xs font-semibold text-gray-700">Охирги 6 ойлик (180 кун) савдо:</div>
+                            <div class="text-xs font-extrabold text-blue-800">
+                                Жами: ${p.sales_6m_count} ${escapeHtml(p.uom)}
+                                <span class="text-gray-400 font-normal text-[11px] ml-1">(v: ${p.variation_pct}%)</span>
+                            </div>
+                        </div>
+                        <div class="flex items-end gap-1.5 pt-2">
+                            ${monthsHtml}
+                        </div>
+                    </div>
+
+                    <!-- Буюртма асоси ва Тавсия -->
+                    <div class="p-3.5 rounded-xl border ${p.abc_xyz_class === 'CZ' ? 'bg-red-50 border-red-200 text-red-900' : 'bg-blue-50 border-blue-200 text-blue-900'}">
+                        <div class="text-xs font-bold mb-1 flex items-center gap-1.5">
+                            <span>${p.abc_xyz_class === 'CZ' ? '🚨' : '📋'}</span>
+                            <span>Буюртма асоси ва таҳлил:</span>
+                        </div>
+                        <p class="text-xs leading-relaxed font-medium">${escapeHtml(p.abc_xyz_description)}</p>
+
+                        <div class="mt-2.5 pt-2 border-t border-gray-200/60 flex items-center justify-between">
+                            <span class="text-xs font-bold text-gray-700">Тавсия этилган буюртма:</span>
+                            ${p.abc_xyz_class === 'CZ' ? `
+                                <span class="badge bg-red-100 text-red-800 font-extrabold text-xs px-2.5 py-1 rounded-md">
+                                    0 ${escapeHtml(p.uom)} (ТАҚИҚЛАНАДИ)
+                                </span>
+                            ` : p.recommended_order_qty > 0 ? `
+                                <span class="badge bg-green-100 text-green-900 font-extrabold text-xs px-2.5 py-1 rounded-md">
+                                    🛒 ${p.recommended_order_qty} ${escapeHtml(p.uom)}
+                                </span>
+                            ` : `
+                                <span class="badge bg-gray-100 text-gray-700 font-bold text-xs px-2.5 py-1 rounded-md">
+                                    Етарли (0 ${escapeHtml(p.uom)})
+                                </span>
+                            `}
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
 }
 
 function applyWarehouseFilters() {

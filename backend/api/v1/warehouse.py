@@ -14,7 +14,7 @@ import httpx
 import structlog
 
 from core.database import get_db, AsyncSessionLocal
-from agents.inventory_agent import InventoryAgent, _INVENTORY_AUDIT_CACHE
+from agents.inventory_agent import InventoryAgent, _INVENTORY_AUDIT_CACHE, extract_brand
 from services.moysklad_client import MoySkladClient
 from config import settings
 
@@ -790,3 +790,159 @@ async def create_purchase_order(payload: PurchaseOrderCreateRequest):
         notes=payload.notes
     )
     return await create_bulk_supplier_order(bulk_req)
+
+
+# ═══════════════ БУТУН ОМБОР БАЗАСИДАН ҚИДИРИШ ВА 6 ОЙЛИК ABC/XYZ КАРТОЧКАСИ ═══════════════
+
+@router.get("/product-details-search", summary="Бутун омбор базасидан қидириш ва 6 ойлик ABC/XYZ карточкасини чиқариш")
+async def product_details_search(q: str = Query(..., min_length=2, description="Артикул, ном, код ёки штрихкод бўйича қидирув сўзи")):
+    """
+    МойСклад базасидаги барча товарлар орасидан қидириш (қидирув чекланмаган):
+    - Товар номи, артикули, коди
+    - Ҳақиқий омбор қолдиғи (мусбат қолдиқ)
+    - Таннарх ва сотилиш нархи (сўмда)
+    - 6 ойлик ABC/XYZ матрицаси ва тавсиялар
+    """
+    ms_client = MoySkladClient()
+    try:
+        search_q = q.strip()
+        url = f"/entity/product?search={search_q}&limit=25&expand=attributes"
+        res = await ms_client.client.get(url)
+        if res.status_code != 200:
+            logger.warning("moysklad_search_failed", status=res.status_code, body=res.text)
+            return {"status": "error", "query": search_q, "products": []}
+
+        prod_data = res.json()
+        rows = prod_data.get("rows", [])
+        if not rows:
+            return {"status": "success", "query": search_q, "count": 0, "products": []}
+
+        # Ҳақиқий қолдиқларни пакет (batch) шаклида олиш
+        hrefs = [r["meta"]["href"] for r in rows if "meta" in r and "href" in r["meta"]]
+        stock_map = {}
+        if hrefs:
+            filter_str = ";".join([f"product={h}" for h in hrefs])
+            stock_res = await ms_client.client.get(f"/report/stock/all?filter={filter_str}")
+            if stock_res.status_code == 200:
+                for s_row in stock_res.json().get("rows", []):
+                    s_href = s_row.get("meta", {}).get("href", "")
+                    s_pid = s_href.split("/")[-1].split("?")[0]
+                    raw_stock = float(s_row.get("stock", 0.0))
+                    stock_map[s_pid] = max(0.0, raw_stock)
+
+        # 6 ойлик сотув ва ABC/XYZ матрицасини кешдан олиш
+        matrix_map = await fetch_180d_product_sales_matrix(ms_client)
+
+        custom_brands = [b.get("name") for b in _brands_cache.get("data", []) if isinstance(b, dict)]
+
+        results = []
+        for r in rows:
+            pid = r.get("id", "")
+            p_name = r.get("name", "")
+            p_article = r.get("article") or "—"
+            p_code = r.get("code") or "—"
+            path_name = r.get("pathName", "")
+
+            # Брендни аниқлаш
+            existing_brand = ""
+            for attr in r.get("attributes", []):
+                if attr.get("name") == "Бренд товара":
+                    val = attr.get("value")
+                    if isinstance(val, dict):
+                        existing_brand = val.get("name", "")
+                    elif isinstance(val, str):
+                        existing_brand = val
+                    break
+
+            brand = extract_brand(name=p_name, path_name=path_name, existing_brand=existing_brand, custom_brands=custom_brands)
+
+            # Ҳақиқий қолдиқ
+            stock = stock_map.get(pid, 0.0)
+
+            # Нархларни ҳисоблаш (Таннарх ва Сотилиш нархи сўмда)
+            buy_price_obj = r.get("buyPrice", {}) or {}
+            buy_p_val = float(buy_price_obj.get("value", 0.0) or 0.0) / 100.0
+            buy_curr_href = buy_price_obj.get("currency", {}).get("meta", {}).get("href", "")
+
+            sale_prices = r.get("salePrices", [])
+            sale_p_val = float(sale_prices[0].get("value", 0.0) or 0.0) / 100.0 if sale_prices else 0.0
+
+            # Агар харид нархи USD бўлса (ёки кичик бўлса), сўмга айлантириш
+            if buy_curr_href.endswith("cbe2389d-b1d2-11ed-0a80-09b4000e8b7e") or (0 < buy_p_val < 5000 and sale_p_val > 50000):
+                buy_p_val = round(buy_p_val * 12800.0, 2)
+
+            if buy_p_val <= 0.0 and sale_p_val > 0.0:
+                buy_p_val = round(sale_p_val * 0.7, 2)
+            elif sale_p_val <= 0.0 and buy_p_val > 0.0:
+                sale_p_val = round(buy_p_val * 1.35, 2)
+
+            # ABC/XYZ 180 кунлик кўрсаткичлари
+            mat = matrix_map.get(pid)
+            if mat:
+                sales_6m = float(mat.get("sales_180d", 0.0))
+                abc_xyz_class = mat.get("matrix_category", "CZ")
+                badge_color = mat.get("badge_color", "blue")
+                abc_xyz_desc = mat.get("rationale", "")
+                order_allowed = mat.get("order_allowed", True)
+                monthly_qty = mat.get("monthly_qty", [0.0] * 6)
+                variation_pct = float(mat.get("variation_pct", 0.0))
+            else:
+                sales_6m = 0.0
+                abc_xyz_class = "CZ"
+                badge_color = "red"
+                abc_xyz_desc = "Ноликвид ёки умуман сотилмайдиган товар! Пул музламаслиги учун буюртма бериш ТАҚИҚЛАНАДИ (0 дона)."
+                order_allowed = False
+                monthly_qty = [0.0] * 6
+                variation_pct = 0.0
+
+            # Буюртма миқдорини ҳисоблаш
+            if not order_allowed or abc_xyz_class == "CZ":
+                recommended_order_qty = 0
+            else:
+                daily_sales = sales_6m / 180.0
+                if abc_xyz_class.startswith("A"):
+                    target_stock = daily_sales * 30.0
+                elif abc_xyz_class.startswith("B"):
+                    target_stock = daily_sales * 20.0
+                elif abc_xyz_class == "CX":
+                    target_stock = daily_sales * 14.0
+                elif abc_xyz_class == "CY":
+                    target_stock = daily_sales * 7.0
+                else:
+                    target_stock = 0.0
+                recommended_order_qty = max(0, int(round(target_stock - stock)))
+
+            uom = r.get("uom", {}).get("name", "дона") if isinstance(r.get("uom"), dict) else "дона"
+
+            results.append({
+                "id": pid,
+                "name": p_name,
+                "article": p_article,
+                "code": p_code,
+                "brand": brand,
+                "stock": stock,
+                "buy_price": buy_p_val,
+                "sale_price": sale_p_val,
+                "sales_6m_count": sales_6m,
+                "abc_xyz_class": abc_xyz_class,
+                "abc_xyz_description": abc_xyz_desc,
+                "badge_color": badge_color,
+                "order_allowed": order_allowed,
+                "recommended_order_qty": recommended_order_qty,
+                "monthly_qty": monthly_qty,
+                "variation_pct": variation_pct,
+                "uom": uom
+            })
+
+        return {
+            "status": "success",
+            "query": search_q,
+            "count": len(results),
+            "products": results
+        }
+
+    except Exception as e:
+        logger.error("product_details_search_error", error=str(e))
+        return {"status": "error", "query": q, "message": str(e), "products": []}
+    finally:
+        await ms_client.close()
