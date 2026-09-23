@@ -1408,50 +1408,61 @@ const DateFilter = {
 };
 
 function switchTab(tabInput) {
-    let cleanKey = typeof tabInput === 'string'
-        ? tabInput.replace(/^#/, '').trim().toLowerCase()
-        : String(tabInput);
-
-    let idx = 0;
-    if (typeof tabInput === 'number' && tabInput >= 0 && tabInput < TAB_KEYS.length) {
-        idx = tabInput;
-    } else if (TAB_MAP.hasOwnProperty(cleanKey)) {
-        idx = TAB_MAP[cleanKey];
-    }
-
-    const tabKey = TAB_KEYS[idx] || 'warehouse';
-
-    // 1. Switch active view in UI
-    document.querySelectorAll('.tab-content').forEach(el => el.classList.add('hidden'));
-    document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
-
-    const activeTab = document.getElementById('tab' + idx);
-    if (activeTab) activeTab.classList.remove('hidden');
-
-    const tabBtns = document.querySelectorAll('.tab-btn');
-    if (tabBtns[idx]) tabBtns[idx].classList.add('active');
-
-    // 2. Persist in localStorage and update URL Hash
     try {
-        localStorage.setItem('activeDiyorTab', tabKey);
-        if (window.location.hash !== '#' + tabKey) {
-            history.replaceState(null, '', '#' + tabKey);
-        }
-    } catch (e) {
-        console.warn('Tab persistence error:', e);
-    }
+        let cleanKey = typeof tabInput === 'string'
+            ? tabInput.replace(/^#/, '').trim().toLowerCase()
+            : String(tabInput);
 
-    // 3. Auto-load data for active tab
-    if (idx === 0) loadWarehouseData();
-    else if (idx === 1) setDebtMode('debtors');
-    else if (idx === 2) loadCashFlow();
-    else if (idx === 3) loadTimesheet();
-    else if (idx === 4) loadReferralStats();
-    else if (idx === 5) loadTasks();
+        let idx = 0;
+        if (typeof tabInput === 'number' && tabInput >= 0 && tabInput < TAB_KEYS.length) {
+            idx = tabInput;
+        } else if (TAB_MAP.hasOwnProperty(cleanKey)) {
+            idx = TAB_MAP[cleanKey];
+        }
+
+        const tabKey = TAB_KEYS[idx] || 'warehouse';
+
+        // 1. Switch active view in UI IMMEDIATELY (no waiting for API)
+        document.querySelectorAll('.tab-content').forEach(el => el.classList.add('hidden'));
+        document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
+
+        const activeTab = document.getElementById('tab' + idx);
+        if (activeTab) activeTab.classList.remove('hidden');
+
+        const tabBtns = document.querySelectorAll('.tab-btn');
+        if (tabBtns[idx]) tabBtns[idx].classList.add('active');
+
+        // 2. Persist in localStorage and update URL Hash
+        try {
+            localStorage.setItem('activeDiyorTab', tabKey);
+            if (window.location.hash !== '#' + tabKey) {
+                history.replaceState(null, '', '#' + tabKey);
+            }
+        } catch (e) {
+            console.warn('Tab persistence error:', e);
+        }
+
+        // 3. Auto-load data for active tab (completely decoupled and non-blocking)
+        setTimeout(() => {
+            try {
+                if (idx === 0) loadWarehouseData();
+                else if (idx === 1) setDebtMode('debtors');
+                else if (idx === 2) loadCashFlow();
+                else if (idx === 3) loadTimesheet();
+                else if (idx === 4) loadReferralStats();
+                else if (idx === 5) loadTasks();
+            } catch (loadErr) {
+                console.error('Data loading error for tab ' + tabKey, loadErr);
+            }
+        }, 10);
+    } catch (tabErr) {
+        console.error('switchTab error:', tabErr);
+    }
 }
 
 function toast(msg, isError = false) {
     const t = document.getElementById('toast');
+    if (!t) return;
     t.textContent = msg;
     t.className = `fixed bottom-4 right-4 px-4 py-3 rounded-lg shadow-xl text-sm z-50 max-w-sm ${isError ? 'bg-red-600 text-white' : 'bg-gray-900 text-white'}`;
     setTimeout(() => t.classList.add('hidden'), 4000);
@@ -1462,27 +1473,44 @@ function fmt(n) {
     return Math.round(n).toLocaleString('ru-RU').replace(/,/g, ' ');
 }
 
-async function apiFetch(url) {
+async function apiFetch(url, timeoutMs = 10000) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
     try {
-        const res = await fetch(API + url);
+        const res = await fetch(API + url, { signal: controller.signal });
+        clearTimeout(timeoutId);
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         return await res.json();
     } catch (e) {
-        console.error('API Error:', url, e);
+        clearTimeout(timeoutId);
+        if (e.name === 'AbortError') {
+            console.warn(`API Timeout (${timeoutMs}ms):`, url);
+        } else {
+            console.error('API Error:', url, e);
+        }
         return null;
     }
 }
 
-async function apiPost(url, body = {}) {
+async function apiPost(url, body = {}, timeoutMs = 12000) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
     try {
         const res = await fetch(API + url, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(body)
+            body: JSON.stringify(body),
+            signal: controller.signal
         });
+        clearTimeout(timeoutId);
         return await res.json();
     } catch (e) {
-        console.error('API Error:', url, e);
+        clearTimeout(timeoutId);
+        if (e.name === 'AbortError') {
+            console.warn(`API Post Timeout (${timeoutMs}ms):`, url);
+        } else {
+            console.error('API Error:', url, e);
+        }
         return null;
     }
 }
@@ -1499,42 +1527,51 @@ let rawWarehouseAuditData = {
 };
 
 async function loadWarehouseData(forceRefresh = false) {
-    // Кешланган ёки мавжуд аудит маълумотларини кўрсатиш
-    const q = DateFilter.getQueryParams();
-    const data = await apiFetch(`/warehouse/audit?force_refresh=${forceRefresh}&${q}`);
-    if (data && data.status === 'success') {
-        renderWarehouseMetrics(data);
-    } else {
-        loadNonLiquid();
-        loadLowStock();
+    try {
+        const q = DateFilter.getQueryParams();
+        const data = await apiFetch(`/warehouse/audit?force_refresh=${forceRefresh}&${q}`, 8000);
+        if (data && data.status === 'success') {
+            renderWarehouseMetrics(data);
+        } else {
+            await Promise.allSettled([loadNonLiquid(), loadLowStock()]);
+        }
+    } catch (err) {
+        console.error('loadWarehouseData audit error:', err);
+    } finally {
+        loadLowStockSuppliers(forceRefresh).catch(e => console.error('loadLowStockSuppliers finally error:', e));
     }
-    loadLowStockSuppliers(forceRefresh);
 }
 
 async function loadNonLiquid() {
-    const data = await apiFetch('/warehouse/non-liquid');
-    if (!data) return;
-
-    rawWarehouseAuditData.total_products = data.total_products || 0;
-    rawWarehouseAuditData.non_liquid_count = data.non_liquid_count || (data.items || []).length;
-    rawWarehouseAuditData.frozen_capital = data.frozen_capital || 0;
-    rawWarehouseAuditData.non_liquid_items = data.items || data.non_liquid_items || [];
-    if (data.available_brands && data.available_brands.length) {
-        rawWarehouseAuditData.available_brands = data.available_brands;
-        populateBrandDropdown(data.available_brands);
+    try {
+        const data = await apiFetch('/warehouse/non-liquid', 8000);
+        if (data) {
+            rawWarehouseAuditData.total_products = data.total_products || 0;
+            rawWarehouseAuditData.non_liquid_count = data.non_liquid_count || (data.items || []).length;
+            rawWarehouseAuditData.frozen_capital = data.frozen_capital || 0;
+            rawWarehouseAuditData.non_liquid_items = data.items || data.non_liquid_items || [];
+            if (data.available_brands && data.available_brands.length) {
+                rawWarehouseAuditData.available_brands = data.available_brands;
+                populateBrandDropdown(data.available_brands);
+            }
+            applyWarehouseFilters();
+        }
+    } catch (e) {
+        console.error('loadNonLiquid error:', e);
     }
-
-    applyWarehouseFilters();
 }
 
 async function loadLowStock() {
-    const data = await apiFetch('/warehouse/low-stock');
-    if (!data) return;
-
-    rawWarehouseAuditData.low_stock_count = data.low_stock_count || (data.items || []).length;
-    rawWarehouseAuditData.low_stock_items = data.items || data.low_stock_items || [];
-
-    applyWarehouseFilters();
+    try {
+        const data = await apiFetch('/warehouse/low-stock', 8000);
+        if (data) {
+            rawWarehouseAuditData.low_stock_count = data.low_stock_count || (data.items || []).length;
+            rawWarehouseAuditData.low_stock_items = data.items || data.low_stock_items || [];
+            applyWarehouseFilters();
+        }
+    } catch (e) {
+        console.error('loadLowStock error:', e);
+    }
 }
 
 async function loadBrandsList() {
@@ -1736,22 +1773,40 @@ async function loadLowStockSuppliers(forceRefresh = false) {
     const badge = document.getElementById('supplier-orders-count-badge');
 
     try {
-        const data = await apiFetch(`/warehouse/low-stock-by-suppliers?threshold=5&force_refresh=${forceRefresh}`);
+        const data = await apiFetch(`/warehouse/low-stock-by-suppliers?threshold=5&force_refresh=${forceRefresh}`, 10000);
         if (data && data.status === 'success') {
             rawWarehouseSuppliersData = data;
             renderLowStockSuppliers();
         } else {
             if (container) {
                 container.innerHTML = `
-                    <div class="bg-white rounded-xl border border-red-200 p-6 text-center text-red-600">
-                        ⚠️ Таъминотчилар маълумотларини юклашда хатолик юз берди.
+                    <div class="bg-white rounded-xl border border-amber-200 p-6 text-center text-amber-800 shadow-sm">
+                        <div class="text-xl mb-1">⏳</div>
+                        <div class="font-bold text-sm">Таъминотчилар бўйича 6 ойлик маълумотлар тайёрланмоқда...</div>
+                        <div class="text-xs text-gray-500 mt-1">Сервер МойСклад ҳисоботларини синхронламоқда.</div>
+                        <button onclick="loadLowStockSuppliers(false)" class="btn btn-primary text-xs mt-3 px-4 py-2 font-bold shadow-sm inline-flex items-center gap-1.5">
+                            <span>🔄</span> <span>Қайта уриниш</span>
+                        </button>
                     </div>
                 `;
             }
-            if (badge) badge.textContent = 'Хатолик';
+            if (badge) badge.textContent = 'Кечикиш';
         }
     } catch (e) {
         console.error('loadLowStockSuppliers error:', e);
+        if (container) {
+            container.innerHTML = `
+                <div class="bg-white rounded-xl border border-red-200 p-6 text-center text-red-600 shadow-sm">
+                    ⚠️ <b>Таъминотчилар маълумотларини олишда хатолик юз берди.</b>
+                    <div class="mt-2">
+                        <button onclick="loadLowStockSuppliers(false)" class="btn btn-primary text-xs px-4 py-2 font-bold shadow-sm inline-flex items-center gap-1.5">
+                            <span>🔄</span> <span>Қайта уриниш</span>
+                        </button>
+                    </div>
+                </div>
+            `;
+        }
+        if (badge) badge.textContent = 'Хатолик';
     }
 }
 
@@ -2106,6 +2161,7 @@ async function submitBulkSupplierOrder(supplierId, supplierName) {
         if (btn) {
             btn.disabled = false;
             btn.innerHTML = originalHtml;
+        }
     }
 }
 
@@ -3708,8 +3764,12 @@ async function checkApiStatus() {
     const docs = document.getElementById('apiDocsLink');
     if (docs) docs.href = (BASE_URL || '') + '/docs';
 
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 6000);
+
     try {
-        const res = await fetch((BASE_URL || '') + '/health');
+        const res = await fetch((BASE_URL || '') + '/health', { signal: controller.signal });
+        clearTimeout(timeoutId);
         if (!res.ok) throw new Error('HTTP ' + res.status);
         const data = await res.json();
         if (data.status === 'healthy') {
@@ -3726,6 +3786,7 @@ async function checkApiStatus() {
             statusEl.className = 'text-xs text-red-600 font-semibold';
         }
     } catch (err) {
+        clearTimeout(timeoutId);
         statusEl.innerHTML = '🔴 API уланмади (<a href="http://127.0.0.1:8000/dashboard" target="_blank" class="underline font-bold">http://127.0.0.1:8000/dashboard</a>)';
         statusEl.className = 'text-xs text-red-600 font-semibold bg-red-50 px-2.5 py-1 rounded-full border border-red-200';
     }

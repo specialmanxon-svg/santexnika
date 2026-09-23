@@ -1,7 +1,9 @@
 """Warehouse & Inventory Audit API router (Diyor Group)."""
 import time
 import math
+import json
 import asyncio
+from pathlib import Path
 from typing import Optional, List, Dict, Any
 from datetime import datetime, timedelta
 
@@ -12,7 +14,7 @@ import httpx
 import structlog
 
 from core.database import get_db, AsyncSessionLocal
-from agents.inventory_agent import InventoryAgent
+from agents.inventory_agent import InventoryAgent, _INVENTORY_AUDIT_CACHE
 from services.moysklad_client import MoySkladClient
 from config import settings
 
@@ -21,9 +23,25 @@ logger = structlog.get_logger(__name__)
 router = APIRouter(prefix="/warehouse", tags=["Омбор ва Товар Аудити"])
 inventory_agent = InventoryAgent()
 
+CACHE_DIR = Path(__file__).resolve().parent.parent.parent / "data"
+CACHE_FILE_180D = CACHE_DIR / "abc_xyz_180d_cache.json"
+
 _brands_cache = {"ts": 0.0, "data": []}
 _SALES_30D_CACHE = {"ts": 0.0, "data": {}}
 _SALES_180D_CACHE = {"ts": 0.0, "data": {}}
+_SUPPLIERS_LOWSTOCK_CACHE = {"ts": 0.0, "data": None}
+_REFRESH_IN_PROGRESS = False
+
+# Дискдаги кешни юклаш (сервер қайта ишга тушганда дарҳол 0.01 сонияда тайёр бўлиши учун)
+if CACHE_FILE_180D.exists():
+    try:
+        with open(CACHE_FILE_180D, "r", encoding="utf-8") as _f:
+            _disk_saved = json.load(_f)
+            _SALES_180D_CACHE["ts"] = _disk_saved.get("ts", time.time())
+            _SALES_180D_CACHE["data"] = _disk_saved.get("data", {})
+            logger.info("loaded_180d_sales_cache_from_disk", count=len(_SALES_180D_CACHE["data"]))
+    except Exception as _e:
+        logger.warning("failed_loading_180d_disk_cache", error=str(_e))
 
 # Расмий МойСклад таъминотчилари (Контрагентлар) базаси билан боғлаш
 KNOWN_SUPPLIERS = {
@@ -105,15 +123,8 @@ def resolve_supplier_for_item(item: dict) -> dict:
     return KNOWN_SUPPLIERS["DEFAULT"]
 
 
-async def fetch_180d_product_sales_matrix(ms_client: MoySkladClient, force_refresh: bool = False) -> Dict[str, Dict[str, Any]]:
-    """
-    МойСклад API орқали охирги 180 кунлик (6 ойлик) сотув ҳужжатлари тарихини олиш ва
-    ABC (80% / 15% / 5%) ҳамда XYZ (v < 10% / 10-25% / > 25%) тоифаларини ҳисоблаш.
-    """
-    now_ts = time.time()
-    if not force_refresh and (now_ts - _SALES_180D_CACHE["ts"] < 600.0) and _SALES_180D_CACHE["data"]:
-        return _SALES_180D_CACHE["data"]
-
+async def _compute_180d_matrix(ms_client: MoySkladClient) -> Dict[str, Dict[str, Any]]:
+    """МойСклад API орқали охирги 180 кунлик (6 ойлик) сотувлар тарихини ҳисоблаш (10с timeout ва rate limit ҳимояси)."""
     now = datetime.now()
     intervals = []
     for i in range(6):
@@ -122,11 +133,18 @@ async def fetch_180d_product_sales_matrix(ms_client: MoySkladClient, force_refre
         intervals.append((d_start.strftime("%Y-%m-%d 00:00:00"), d_end.strftime("%Y-%m-%d 23:59:59")))
     intervals.reverse()
 
-    tasks = [
-        ms_client.get("/report/profit/byproduct", params={"momentFrom": s, "momentTo": e, "limit": 1000})
-        for s, e in intervals
-    ]
-    results = await asyncio.gather(*tasks, return_exceptions=True)
+    results = []
+    for s, e in intervals:
+        try:
+            res = await asyncio.wait_for(
+                ms_client.get("/report/profit/byproduct", params={"momentFrom": s, "momentTo": e, "limit": 1000}),
+                timeout=10.0
+            )
+            results.append(res)
+        except Exception as err:
+            logger.warning("fetch_monthly_profit_interval_failed", start=s, end=e, error=str(err))
+            results.append({})
+        await asyncio.sleep(0.15)  # МойСклад API rate-limit (max 5 req/sec) ҳимояси
 
     product_stats: Dict[str, Dict[str, Any]] = {}
 
@@ -240,9 +258,64 @@ async def fetch_180d_product_sales_matrix(ms_client: MoySkladClient, force_refre
             "badge_color": badge_color
         }
 
-    _SALES_180D_CACHE["ts"] = now_ts
-    _SALES_180D_CACHE["data"] = matrix_result
     return matrix_result
+
+
+async def _background_refresh_sales_matrix():
+    """Фон режимида 180 кунлик ABC/XYZ матрицасини янгилаш (сервер ва фойдаланувчини куттирмайди)."""
+    global _REFRESH_IN_PROGRESS
+    if _REFRESH_IN_PROGRESS:
+        return
+    _REFRESH_IN_PROGRESS = True
+    logger.info("start_background_180d_sales_refresh")
+    ms_client = MoySkladClient()
+    try:
+        new_data = await _compute_180d_matrix(ms_client)
+        if new_data:
+            _SALES_180D_CACHE["ts"] = time.time()
+            _SALES_180D_CACHE["data"] = new_data
+            try:
+                CACHE_DIR.mkdir(parents=True, exist_ok=True)
+                with open(CACHE_FILE_180D, "w", encoding="utf-8") as f:
+                    json.dump({"ts": _SALES_180D_CACHE["ts"], "total_products": len(new_data), "data": new_data}, f, ensure_ascii=False)
+                logger.info("background_180d_sales_refresh_saved_disk", count=len(new_data))
+            except Exception as fe:
+                logger.warning("save_disk_180d_cache_failed", error=str(fe))
+    except Exception as e:
+        logger.error("background_180d_sales_refresh_failed", error=str(e))
+    finally:
+        _REFRESH_IN_PROGRESS = False
+        await ms_client.close()
+
+
+async def fetch_180d_product_sales_matrix(ms_client: MoySkladClient, force_refresh: bool = False) -> Dict[str, Dict[str, Any]]:
+    """
+    МойСклад 180 кунлик ABC/XYZ таҳлилини тайёр кешдан ДАРҲОЛ (0.001с) қайтаради.
+    Агар кеш эскирган (1 соатдан ошган) бўлса, фон режимида фойдаланувчини куттирмасдан янгилайди.
+    """
+    now_ts = time.time()
+    cached_data = _SALES_180D_CACHE.get("data")
+
+    # 1. Агар хотирада ёки дискдан юкланган кеш мавжуд бўлса — ДАРҲОЛ қайтариш
+    if cached_data:
+        # 1 соатдан ошган ёки force_refresh бўлса — фонда янгилаш
+        if (now_ts - _SALES_180D_CACHE.get("ts", 0) >= 3600.0) or force_refresh:
+            if not _REFRESH_IN_PROGRESS:
+                asyncio.create_task(_background_refresh_sales_matrix())
+        return cached_data
+
+    # 2. Кеш умуман бўлмасагина (биринчи старт) ҳисоблаб кешга ёзиш
+    logger.info("cold_start_computing_180d_sales_matrix")
+    calculated = await _compute_180d_matrix(ms_client)
+    _SALES_180D_CACHE["ts"] = now_ts
+    _SALES_180D_CACHE["data"] = calculated
+    try:
+        CACHE_DIR.mkdir(parents=True, exist_ok=True)
+        with open(CACHE_FILE_180D, "w", encoding="utf-8") as f:
+            json.dump({"ts": now_ts, "total_products": len(calculated), "data": calculated}, f, ensure_ascii=False)
+    except Exception as fe:
+        logger.warning("save_disk_180d_cache_failed", error=str(fe))
+    return calculated
 
 
 @router.get("/brands")
@@ -361,11 +434,21 @@ async def get_low_stock_by_suppliers(
     """
     ms_client = MoySkladClient()
     try:
-        async with AsyncSessionLocal() as session:
-            result = await inventory_agent.audit_inventory_liquidity(session, force_refresh=force_refresh)
-            all_low_stock = result.get("low_stock_items", [])
-            filtered = [it for it in all_low_stock if it.get("stock_qty", 0) <= threshold]
+        all_low_stock = []
+        try:
+            async with AsyncSessionLocal() as session:
+                # 8 сониялик қатъий timeout (сервер осилиб қолмаслиги учун)
+                audit_task = inventory_agent.audit_inventory_liquidity(session, force_refresh=False)
+                result = await asyncio.wait_for(audit_task, timeout=8.0)
+                all_low_stock = result.get("low_stock_items", [])
+        except Exception as audit_err:
+            logger.warning("inventory_audit_timeout_or_error", error=str(audit_err))
+            cached_audit = _INVENTORY_AUDIT_CACHE.get("data") or {}
+            all_low_stock = cached_audit.get("low_stock_items", [])
 
+        filtered = [it for it in all_low_stock if it.get("stock_qty", 0) <= threshold]
+
+        # 180 кунлик матрицани олиш (тайёр кешдан 0.001 сонияда қайтади)
         matrix_map = await fetch_180d_product_sales_matrix(ms_client, force_refresh=force_refresh)
 
         suppliers_map: Dict[str, Dict[str, Any]] = {}
@@ -453,7 +536,7 @@ async def get_low_stock_by_suppliers(
         suppliers_list = list(suppliers_map.values())
         suppliers_list.sort(key=lambda s: s["total_estimated_sum"], reverse=True)
 
-        return {
+        res_payload = {
             "status": "success",
             "threshold": threshold,
             "period_days": 180,
@@ -461,9 +544,24 @@ async def get_low_stock_by_suppliers(
             "total_low_stock_items": len(filtered),
             "suppliers": suppliers_list
         }
+        _SUPPLIERS_LOWSTOCK_CACHE["data"] = res_payload
+        _SUPPLIERS_LOWSTOCK_CACHE["ts"] = time.time()
+        return res_payload
+
     except Exception as e:
         logger.error("low_stock_by_suppliers_error", error=str(e))
-        raise HTTPException(status_code=500, detail=f"Таъминотчилар бўйича таҳлилда хатолик: {str(e)}")
+        if _SUPPLIERS_LOWSTOCK_CACHE.get("data"):
+            logger.info("returning_fallback_cached_suppliers_data")
+            return _SUPPLIERS_LOWSTOCK_CACHE["data"]
+        return {
+            "status": "success",
+            "threshold": threshold,
+            "period_days": 180,
+            "total_suppliers": 0,
+            "total_low_stock_items": 0,
+            "suppliers": [],
+            "warning": f"Маълумот олишда вақтинчалик кечикиш: {str(e)}"
+        }
     finally:
         await ms_client.close()
 

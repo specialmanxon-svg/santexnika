@@ -13,15 +13,32 @@ from models.audit import AuditEvent
 from services.telegram_notifier import TelegramNotifier
 from services.moysklad_client import MoySkladClient
 
+import json
+import time
+from pathlib import Path
+
 logger = structlog.get_logger()
 
 USD_RATE = 12800.0  # 1 USD = ~12,800 UZS
 
+CACHE_DIR = Path(__file__).resolve().parent.parent / "data"
+CACHE_FILE_AUDIT = CACHE_DIR / "inventory_audit_cache.json"
 
 _INVENTORY_AUDIT_CACHE = {
     "ts": 0.0,
     "data": None
 }
+
+# Дискдаги кешни юклаш (сервер рестарт бўлганда дарҳол 0.01 сонияда тайёр бўлиши учун)
+if CACHE_FILE_AUDIT.exists():
+    try:
+        with open(CACHE_FILE_AUDIT, "r", encoding="utf-8") as _f:
+            _disk_audit = json.load(_f)
+            _INVENTORY_AUDIT_CACHE["ts"] = _disk_audit.get("ts", time.time())
+            _INVENTORY_AUDIT_CACHE["data"] = _disk_audit.get("data")
+            logger.info("loaded_inventory_audit_cache_from_disk")
+    except Exception as _e:
+        logger.warning("failed_loading_inventory_audit_disk_cache", error=str(_e))
 
 
 def categorize_product(path_name: str = "", brand: str = "", name: str = "") -> str:
@@ -116,7 +133,7 @@ class InventoryAgent:
         """
         import time
         now_ts = time.time()
-        if not force_refresh and _INVENTORY_AUDIT_CACHE["data"] and (now_ts - _INVENTORY_AUDIT_CACHE["ts"] < 180):
+        if not force_refresh and _INVENTORY_AUDIT_CACHE["data"] and (now_ts - _INVENTORY_AUDIT_CACHE["ts"] < 1800.0):
             logger.info("returning_cached_inventory_audit")
             return _INVENTORY_AUDIT_CACHE["data"]
 
@@ -390,9 +407,17 @@ class InventoryAgent:
             "status": f"Audit Completed ({source_mode})"
         }
 
-        import time
         _INVENTORY_AUDIT_CACHE["ts"] = time.time()
         _INVENTORY_AUDIT_CACHE["data"] = result_payload
+
+        # Дискка кешни сақлаш
+        try:
+            CACHE_DIR.mkdir(parents=True, exist_ok=True)
+            with open(CACHE_FILE_AUDIT, "w", encoding="utf-8") as _f:
+                json.dump({"ts": _INVENTORY_AUDIT_CACHE["ts"], "data": result_payload}, _f, ensure_ascii=False)
+            logger.info("saved_inventory_audit_to_disk")
+        except Exception as _fe:
+            logger.warning("save_inventory_audit_disk_failed", error=str(_fe))
 
         return result_payload
 
