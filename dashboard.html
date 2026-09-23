@@ -56,104 +56,114 @@
         .btn-danger:hover { background: #b91c1c; }
         .num { font-family: 'Consolas', 'Roboto Mono', monospace; font-variant-numeric: tabular-nums; }
         .period-btn.active { background-color: #ffffff; color: #1e3a8a; font-weight: 700; box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.12); }
+        .sticky-top-container {
+            position: sticky;
+            top: 0;
+            z-index: 1000;
+            background-color: #ffffff;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
+        }
     </style>
 </head>
 <body class="bg-gray-50 min-h-screen">
 
-<!-- Header -->
-<header class="bg-white border-b border-gray-200 shadow-sm sticky top-0 z-50">
-    <div class="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between">
-        <div class="flex items-center gap-3">
-            <div class="w-10 h-10 bg-primary rounded-lg flex items-center justify-center">
-                <span class="text-white text-lg font-bold">D</span>
+<!-- Sticky Top Container (Header + Nav + Date Filter) -->
+<div class="sticky-top-container">
+    <!-- Header -->
+    <header class="bg-white border-b border-gray-200">
+        <div class="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between">
+            <div class="flex items-center gap-3">
+                <div class="w-10 h-10 bg-primary rounded-lg flex items-center justify-center">
+                    <span class="text-white text-lg font-bold">D</span>
+                </div>
+                <div>
+                    <h1 class="text-lg font-bold text-gray-900">Diyor Group</h1>
+                    <p class="text-xs text-gray-500">Савдо, Омбор ва Молия Бошқаруви</p>
+                </div>
             </div>
-            <div>
-                <h1 class="text-lg font-bold text-gray-900">Diyor Group</h1>
-                <p class="text-xs text-gray-500">Савдо, Омбор ва Молия Бошқаруви</p>
+            <div class="flex items-center gap-2">
+                <span id="apiStatus" class="text-xs text-gray-400 cursor-pointer" onclick="promptBackendUrl()" title="Backend URL созламалари учун босинг">⏳ Текширилмоқда...</span>
+                <button onclick="promptBackendUrl()" class="text-xs bg-gray-100 hover:bg-gray-200 text-gray-700 px-2 py-1 rounded border border-gray-300" title="Render API URL созлаш">⚙️ API</button>
+                <a id="apiDocsLink" href="/docs" target="_blank" class="text-xs text-primary hover:underline">API Docs</a>
             </div>
         </div>
-        <div class="flex items-center gap-2">
-            <span id="apiStatus" class="text-xs text-gray-400 cursor-pointer" onclick="promptBackendUrl()" title="Backend URL созламалари учун босинг">⏳ Текширилмоқда...</span>
-            <button onclick="promptBackendUrl()" class="text-xs bg-gray-100 hover:bg-gray-200 text-gray-700 px-2 py-1 rounded border border-gray-300" title="Render API URL созлаш">⚙️ API</button>
-            <a id="apiDocsLink" href="/docs" target="_blank" class="text-xs text-primary hover:underline">API Docs</a>
+    </header>
+
+    <!-- Tab Navigation -->
+    <nav class="bg-white border-b border-gray-200">
+        <div class="max-w-7xl mx-auto px-4 flex gap-1 overflow-x-auto">
+            <button class="tab-btn active px-4 py-3 text-sm whitespace-nowrap" onclick="switchTab('warehouse')">📦 Омбор</button>
+            <button class="tab-btn px-4 py-3 text-sm whitespace-nowrap" onclick="switchTab('debts')">💳 Дебитор/Кредитор</button>
+            <button class="tab-btn px-4 py-3 text-sm whitespace-nowrap" onclick="switchTab('finance')">💰 Пул Айланмаси</button>
+            <button class="tab-btn px-4 py-3 text-sm whitespace-nowrap" onclick="switchTab('hr')">👷 Ходимлар / KPI</button>
+            <button class="tab-btn px-4 py-3 text-sm whitespace-nowrap" onclick="switchTab('partners')">🤝 Ҳамкорлик 5%</button>
+            <button class="tab-btn px-4 py-3 text-sm whitespace-nowrap" onclick="switchTab('tasks')">📋 Топшириқлар</button>
         </div>
-    </div>
-</header>
+    </nav>
 
-<!-- Tab Navigation -->
-<nav class="bg-white border-b border-gray-200">
-    <div class="max-w-7xl mx-auto px-4 flex gap-1 overflow-x-auto">
-        <button class="tab-btn active px-4 py-3 text-sm whitespace-nowrap" onclick="switchTab('warehouse')">📦 Омбор</button>
-        <button class="tab-btn px-4 py-3 text-sm whitespace-nowrap" onclick="switchTab('debts')">💳 Дебитор/Кредитор</button>
-        <button class="tab-btn px-4 py-3 text-sm whitespace-nowrap" onclick="switchTab('finance')">💰 Пул Айланмаси</button>
-        <button class="tab-btn px-4 py-3 text-sm whitespace-nowrap" onclick="switchTab('hr')">👷 Ходимлар / KPI</button>
-        <button class="tab-btn px-4 py-3 text-sm whitespace-nowrap" onclick="switchTab('partners')">🤝 Ҳамкорлик 5%</button>
-        <button class="tab-btn px-4 py-3 text-sm whitespace-nowrap" onclick="switchTab('tasks')">📋 Топшириқлар</button>
-    </div>
-</nav>
-
-<!-- ═══════════════ GLOBAL DATE RANGE FILTER (МойСклад Услубида) ═══════════════ -->
-<section id="global-date-filter" class="bg-white border-b border-gray-200 shadow-sm sticky top-[57px] z-40">
-    <div class="max-w-7xl mx-auto px-4 py-2.5 flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3 text-xs">
-        
-        <!-- Left: Label & Presets -->
-        <div class="flex flex-wrap items-center gap-2">
-            <span class="font-bold text-gray-700 flex items-center gap-1.5 whitespace-nowrap text-sm">
-                <span class="text-primary text-base">📅</span> Период:
-            </span>
-            <div class="inline-flex rounded-lg bg-gray-100 p-0.5 border border-gray-200" role="group">
-                <button type="button" id="btn-period-yesterday" onclick="DateFilter.setPreset('yesterday')"
-                    class="period-btn px-3 py-1.5 rounded-md font-medium text-gray-600 hover:text-primary transition cursor-pointer">
-                    Кеча
-                </button>
-                <button type="button" id="btn-period-today" onclick="DateFilter.setPreset('today')"
-                    class="period-btn px-3 py-1.5 rounded-md font-medium text-gray-600 hover:text-primary transition cursor-pointer">
-                    Бугун
-                </button>
-                <button type="button" id="btn-period-week" onclick="DateFilter.setPreset('week')"
-                    class="period-btn px-3 py-1.5 rounded-md font-medium text-gray-600 hover:text-primary transition cursor-pointer">
-                    Ҳафта
-                </button>
-                <button type="button" id="btn-period-month" onclick="DateFilter.setPreset('month')"
-                    class="period-btn px-3 py-1.5 rounded-md font-medium text-gray-600 hover:text-primary transition cursor-pointer active">
-                    Ой
-                </button>
-            </div>
-            <span id="period-badge" class="hidden sm:inline-block px-2.5 py-1 bg-blue-50 text-primary border border-blue-200 rounded-md font-semibold text-xs">
-                Жорий ой
-            </span>
-        </div>
-
-        <!-- Right: Custom Datepicker + Apply/Reset -->
-        <div class="flex flex-wrap items-center gap-2">
-            <div class="flex items-center gap-1.5 bg-gray-50 border border-gray-300 rounded-lg px-2.5 py-1 focus-within:ring-2 focus-within:ring-primary focus-within:border-primary">
-                <label for="filter-from-date" class="text-gray-500 font-semibold text-[11px] whitespace-nowrap">Санадан:</label>
-                <input type="date" id="filter-from-date" onchange="DateFilter.onCustomDateChange()" 
-                    class="bg-transparent text-gray-800 text-xs font-medium focus:outline-none cursor-pointer">
+    <!-- ═══════════════ GLOBAL DATE RANGE FILTER (МойСклад Услубида) ═══════════════ -->
+    <section id="global-date-filter" class="bg-white border-b border-gray-200">
+        <div class="max-w-7xl mx-auto px-4 py-2.5 flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3 text-xs">
+            
+            <!-- Left: Label & Presets -->
+            <div class="flex flex-wrap items-center gap-2">
+                <span class="font-bold text-gray-700 flex items-center gap-1.5 whitespace-nowrap text-sm">
+                    <span class="text-primary text-base">📅</span> Период:
+                </span>
+                <div class="inline-flex rounded-lg bg-gray-100 p-0.5 border border-gray-200" role="group">
+                    <button type="button" id="btn-period-yesterday" onclick="DateFilter.setPreset('yesterday')"
+                        class="period-btn px-3 py-1.5 rounded-md font-medium text-gray-600 hover:text-primary transition cursor-pointer">
+                        Кеча
+                    </button>
+                    <button type="button" id="btn-period-today" onclick="DateFilter.setPreset('today')"
+                        class="period-btn px-3 py-1.5 rounded-md font-medium text-gray-600 hover:text-primary transition cursor-pointer">
+                        Бугун
+                    </button>
+                    <button type="button" id="btn-period-week" onclick="DateFilter.setPreset('week')"
+                        class="period-btn px-3 py-1.5 rounded-md font-medium text-gray-600 hover:text-primary transition cursor-pointer">
+                        Ҳафта
+                    </button>
+                    <button type="button" id="btn-period-month" onclick="DateFilter.setPreset('month')"
+                        class="period-btn px-3 py-1.5 rounded-md font-medium text-gray-600 hover:text-primary transition cursor-pointer active">
+                        Ой
+                    </button>
+                </div>
+                <span id="period-badge" class="hidden sm:inline-block px-2.5 py-1 bg-blue-50 text-primary border border-blue-200 rounded-md font-semibold text-xs">
+                    Жорий ой
+                </span>
             </div>
 
-            <span class="text-gray-400 font-bold">—</span>
+            <!-- Right: Custom Datepicker + Apply/Reset -->
+            <div class="flex flex-wrap items-center gap-2">
+                <div class="flex items-center gap-1.5 bg-gray-50 border border-gray-300 rounded-lg px-2.5 py-1 focus-within:ring-2 focus-within:ring-primary focus-within:border-primary">
+                    <label for="filter-from-date" class="text-gray-500 font-semibold text-[11px] whitespace-nowrap">Санадан:</label>
+                    <input type="date" id="filter-from-date" onchange="DateFilter.onCustomDateChange()" 
+                        class="bg-transparent text-gray-800 text-xs font-medium focus:outline-none cursor-pointer">
+                </div>
 
-            <div class="flex items-center gap-1.5 bg-gray-50 border border-gray-300 rounded-lg px-2.5 py-1 focus-within:ring-2 focus-within:ring-primary focus-within:border-primary">
-                <label for="filter-to-date" class="text-gray-500 font-semibold text-[11px] whitespace-nowrap">Санагача:</label>
-                <input type="date" id="filter-to-date" onchange="DateFilter.onCustomDateChange()" 
-                    class="bg-transparent text-gray-800 text-xs font-medium focus:outline-none cursor-pointer">
+                <span class="text-gray-400 font-bold">—</span>
+
+                <div class="flex items-center gap-1.5 bg-gray-50 border border-gray-300 rounded-lg px-2.5 py-1 focus-within:ring-2 focus-within:ring-primary focus-within:border-primary">
+                    <label for="filter-to-date" class="text-gray-500 font-semibold text-[11px] whitespace-nowrap">Санагача:</label>
+                    <input type="date" id="filter-to-date" onchange="DateFilter.onCustomDateChange()" 
+                        class="bg-transparent text-gray-800 text-xs font-medium focus:outline-none cursor-pointer">
+                </div>
+
+                <button type="button" onclick="DateFilter.applyFilter()" 
+                    class="px-3.5 py-1.5 bg-primary hover:bg-blue-900 text-white rounded-lg font-semibold flex items-center gap-1 shadow-sm transition cursor-pointer">
+                    <span>🔍</span> Қўллаш
+                </button>
+
+                <button type="button" onclick="DateFilter.reset()" 
+                    class="px-3 py-1.5 bg-white hover:bg-gray-100 text-gray-600 border border-gray-300 rounded-lg font-medium flex items-center gap-1 transition cursor-pointer"
+                    title="Ой бошига қайтариш">
+                    <span>↺</span> Тозалаш
+                </button>
             </div>
 
-            <button type="button" onclick="DateFilter.applyFilter()" 
-                class="px-3.5 py-1.5 bg-primary hover:bg-blue-900 text-white rounded-lg font-semibold flex items-center gap-1 shadow-sm transition cursor-pointer">
-                <span>🔍</span> Қўллаш
-            </button>
-
-            <button type="button" onclick="DateFilter.reset()" 
-                class="px-3 py-1.5 bg-white hover:bg-gray-100 text-gray-600 border border-gray-300 rounded-lg font-medium flex items-center gap-1 transition cursor-pointer"
-                title="Ой бошига қайтариш">
-                <span>↺</span> Тозалаш
-            </button>
         </div>
-
-    </div>
-</section>
+    </section>
+</div>
 
 <!-- Main Content -->
 <main class="max-w-7xl mx-auto px-4 py-6">
