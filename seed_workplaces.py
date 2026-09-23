@@ -9,9 +9,7 @@ db_paths = ["backend/diyorgroup.db", "diyorgroup.db"]
 
 workplaces_to_seed = [
     (1, "Марказий дўкон (Бухоро)", "Бухоро ш., Ибн Сино кўчаси", 39.748992, 64.432118, 150.0, 1),
-    (2, "Бабур кўчаси объекти", "Тошкент ш., Бобур кўчаси (ул. Бабур)", 41.285000, 69.252000, 300.0, 1),
-    (3, "Комил Қодиров отель объекти", "Бухоро ш., К. Қодиров кўчаси", 39.774550, 64.428650, 150.0, 1),
-    (4, "Бабур кўчаси филиали (Бухоро)", "Бухоро ш., Бобур кўчаси", 39.768000, 64.445000, 150.0, 1),
+    (2, "Piramit Tower (Тошкент, Бобур кўчаси)", "Тошкент ш., Яккасарой т., Бобур кўчаси, 44B", 41.281213, 69.254539, 300.0, 1),
 ]
 
 for db in db_paths:
@@ -41,6 +39,8 @@ for db in db_paths:
                 VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
             """, (wp_id, name, addr, lat, lon, rad, active))
             print(f"[{db}] Inserted workplace ID {wp_id}: {name}")
+    valid_ids = tuple(x[0] for x in workplaces_to_seed)
+    cur.execute(f"DELETE FROM workplaces WHERE id NOT IN ({','.join('?' for _ in valid_ids)})", valid_ids)
     conn.commit()
 
     cur.execute("SELECT id, name, latitude, longitude, radius_meters, is_active FROM workplaces")

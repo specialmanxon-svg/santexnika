@@ -288,6 +288,24 @@ async def save_geofence(
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
 
 
+@router.put("/geofences/{geofence_id}", summary="Объект маълумотларини ёки координатасини янгилаш")
+async def update_geofence(
+    geofence_id: int,
+    request: GeofencePayload,
+    session: AsyncSession = Depends(get_db)
+):
+    """
+    Мавжуд объектнинг номи, манзили, координаталари ёки радиусини янгилаш.
+    """
+    try:
+        data = request.model_dump(exclude_unset=True)
+        return await hr_service.update_location(session, geofence_id, data)
+    except ValueError as ve:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(ve))
+    except Exception as e:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+
+
 @router.delete("/geofences/{geofence_id}", summary="Объектни базадан бутунлай ўчириш")
 async def remove_geofence(
     geofence_id: int,

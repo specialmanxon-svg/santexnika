@@ -969,7 +969,7 @@
                         <button type="button" id="btn-loc-cancel" onclick="resetWorkplaceForm()" class="btn bg-gray-200 hover:bg-gray-300 text-gray-700 text-xs py-2 px-3 rounded-lg hidden">
                             Бекор қилиш
                         </button>
-                        <button type="button" onclick="saveWorkplace()" class="btn bg-indigo-600 hover:bg-indigo-700 text-white text-xs py-2 px-4 rounded-lg flex items-center gap-1.5 font-semibold shadow-sm">
+                        <button type="button" id="btn-loc-save" onclick="saveWorkplace()" class="btn bg-indigo-600 hover:bg-indigo-700 text-white text-xs py-2 px-4 rounded-lg flex items-center gap-1.5 font-semibold shadow-sm">
                             <span id="btn-loc-save-icon">💾</span> <span id="btn-loc-save-text">Сақлаш</span>
                         </button>
                     </div>
@@ -2068,6 +2068,7 @@ let workplacesList = [];
 function openWorkplacesModal() {
     const modal = document.getElementById('workplacesModal');
     if (modal) modal.classList.remove('hidden');
+    resetWorkplaceForm();
     loadLocations();
 }
 
@@ -2142,21 +2143,27 @@ async function loadLocations() {
         let data = await apiFetch('/hr/geofences');
         
         // Резерв эндпоинт (/hr/locations)
-        if (!data || !Array.isArray(data)) {
-            data = await apiFetch('/hr/locations');
+        if (!data || !Array.isArray(data) || data.length === 0) {
+            const locData = await apiFetch('/hr/locations');
+            if (locData && Array.isArray(locData) && locData.length > 0) {
+                data = locData;
+            }
         }
 
         // Резерв файл (data/geofences.json)
-        if (!data || !Array.isArray(data)) {
+        if (!data || !Array.isArray(data) || data.length === 0) {
             try {
-                const resJson = await fetch('data/geofences.json');
+                const resJson = await fetch('data/geofences.json?v=' + Date.now());
                 if (resJson.ok) {
-                    data = await resJson.json();
+                    const jsonData = await resJson.json();
+                    if (Array.isArray(jsonData) && jsonData.length > 0) {
+                        data = jsonData;
+                    }
                 }
             } catch (je) {}
         }
 
-        if (data && Array.isArray(data)) {
+        if (data && Array.isArray(data) && data.length > 0) {
             workplacesList = data;
             try {
                 localStorage.setItem('diyor_geofences', JSON.stringify(data));
@@ -2178,7 +2185,8 @@ async function loadLocations() {
             }
         } catch (ce) {}
 
-        if (tbody) tbody.innerHTML = '<tr><td colspan="7" class="text-center py-6 text-red-500">❌ Объектларни сервердан юклашда хатолик юз берди</td></tr>';
+        workplacesList = [];
+        renderLocationsTable([]);
     } catch (e) {
         console.error('loadLocations error:', e);
         if (tbody) tbody.innerHTML = `<tr><td colspan="7" class="text-center py-6 text-red-500">❌ Хатолик: ${e.message}</td></tr>`;
@@ -2211,15 +2219,26 @@ function getCurrentLocationForWorkplace() {
 
 function editWorkplace(id) {
     const loc = workplacesList.find(x => x.id === id);
-    if (!loc) return;
+    if (!loc) {
+        toast('Объект маълумотлари топилмади', true);
+        return;
+    }
 
-    document.getElementById('loc-id').value = loc.id;
-    document.getElementById('loc-name').value = loc.name || '';
-    document.getElementById('loc-address').value = loc.address || '';
-    document.getElementById('loc-lat').value = loc.latitude;
-    document.getElementById('loc-lon').value = loc.longitude;
-    document.getElementById('loc-radius').value = loc.radius_meters || 150;
-    document.getElementById('loc-active').checked = Boolean(loc.is_active);
+    const idEl = document.getElementById('loc-id');
+    const nameEl = document.getElementById('loc-name');
+    const addrEl = document.getElementById('loc-address');
+    const latEl = document.getElementById('loc-lat');
+    const lonEl = document.getElementById('loc-lon');
+    const radEl = document.getElementById('loc-radius');
+    const actEl = document.getElementById('loc-active');
+
+    if (idEl) idEl.value = loc.id;
+    if (nameEl) nameEl.value = loc.name || '';
+    if (addrEl) addrEl.value = loc.address || '';
+    if (latEl) latEl.value = loc.latitude;
+    if (lonEl) lonEl.value = loc.longitude;
+    if (radEl) radEl.value = loc.radius_meters || 150;
+    if (actEl) actEl.checked = Boolean(loc.is_active);
 
     const titleEl = document.getElementById('loc-form-title');
     if (titleEl) titleEl.innerHTML = `<span>✏️</span> <span>«${escapeHtml(loc.name)}» объектини таҳрирлаш</span>`;
@@ -2234,18 +2253,24 @@ function editWorkplace(id) {
     if (btnSaveText) btnSaveText.textContent = 'Янгилашни сақлаш';
 
     // Scroll form into view
-    const formSection = document.getElementById('loc-form-title');
-    if (formSection) formSection.scrollIntoView({ behavior: 'smooth' });
+    if (titleEl) titleEl.scrollIntoView({ behavior: 'smooth' });
 }
 
 function resetWorkplaceForm() {
-    document.getElementById('loc-id').value = '';
-    document.getElementById('loc-name').value = '';
-    document.getElementById('loc-address').value = '';
-    document.getElementById('loc-lat').value = '';
-    document.getElementById('loc-lon').value = '';
-    document.getElementById('loc-radius').value = '150';
-    document.getElementById('loc-active').checked = true;
+    const idEl = document.getElementById('loc-id');
+    if (idEl) idEl.value = '';
+    const nameEl = document.getElementById('loc-name');
+    if (nameEl) nameEl.value = '';
+    const addrEl = document.getElementById('loc-address');
+    if (addrEl) addrEl.value = '';
+    const latEl = document.getElementById('loc-lat');
+    if (latEl) latEl.value = '';
+    const lonEl = document.getElementById('loc-lon');
+    if (lonEl) lonEl.value = '';
+    const radEl = document.getElementById('loc-radius');
+    if (radEl) radEl.value = '150';
+    const actEl = document.getElementById('loc-active');
+    if (actEl) actEl.checked = true;
 
     const titleEl = document.getElementById('loc-form-title');
     if (titleEl) titleEl.innerHTML = '<span>➕</span> <span>Янги объект қўшиш</span>';
@@ -2261,17 +2286,18 @@ function resetWorkplaceForm() {
 }
 
 async function saveWorkplace() {
-    const id = document.getElementById('loc-id').value;
-    const name = document.getElementById('loc-name').value.trim();
-    const address = document.getElementById('loc-address').value.trim();
-    const lat = parseFloat(document.getElementById('loc-lat').value);
-    const lon = parseFloat(document.getElementById('loc-lon').value);
-    const radius = parseFloat(document.getElementById('loc-radius').value) || 150;
-    const isActive = document.getElementById('loc-active').checked;
+    const idInput = document.getElementById('loc-id');
+    const id = idInput ? idInput.value : '';
+    const name = (document.getElementById('loc-name')?.value || '').trim();
+    const address = (document.getElementById('loc-address')?.value || '').trim();
+    const lat = parseFloat(document.getElementById('loc-lat')?.value);
+    const lon = parseFloat(document.getElementById('loc-lon')?.value);
+    const radius = parseFloat(document.getElementById('loc-radius')?.value) || 150;
+    const isActive = document.getElementById('loc-active') ? document.getElementById('loc-active').checked : true;
 
     if (!name) {
         toast('Объект номини киритинг!', true);
-        document.getElementById('loc-name').focus();
+        document.getElementById('loc-name')?.focus();
         return;
     }
     if (isNaN(lat) || isNaN(lon)) {
@@ -2297,16 +2323,35 @@ async function saveWorkplace() {
     if (saveBtnText) saveBtnText.textContent = 'Сақланмоқда...';
 
     try {
-        // Сервернинг POST /api/v1/hr/geofences эндпоинтига сақлаш
-        const res = await fetch(API + '/hr/geofences', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload)
-        });
-        const data = await res.json();
+        let res;
+        if (id) {
+            // Агар ID бўлса, PUT /geofences/{id} сўрови юборамиз
+            res = await fetch(`${API}/hr/geofences/${id}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            // Агар PUT 404/405 қайтарса, POST га ретрай қиламиз
+            if (!res.ok && (res.status === 404 || res.status === 405)) {
+                res = await fetch(`${API}/hr/geofences`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+            }
+        } else {
+            // Янги объект бўлса POST /geofences
+            res = await fetch(`${API}/hr/geofences`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+        }
 
-        if (res.ok && (data.status === 'success' || data.id || data.location)) {
-            toast(data.message || '✅ Объект серверда муваффақиятли сақланди!');
+        const data = await res.json().catch(() => ({}));
+
+        if (res.ok && (data.status === 'success' || data.id || data.location || res.status === 200)) {
+            toast(data.message || (id ? '✅ Объект маълумотлари муваффақиятли янгиланди!' : '✅ Янги объект муваффақиятли қўшилди!'));
             resetWorkplaceForm();
             await loadLocations();
         } else {
@@ -2323,29 +2368,40 @@ async function saveWorkplace() {
 
 async function deleteWorkplace(id, explicitName = '') {
     const loc = (workplacesList || []).find(x => x.id === id);
-    const name = explicitName || (loc ? loc.name : 'Ушбу объект');
+    const name = explicitName || (loc ? loc.name : `ID: ${id}`);
     if (!confirm(`«${name}» объектини чиндан ҳам базадан бутунлай ўчирмоқчимисиз?`)) return;
 
     try {
         const res = await fetch(`${API}/hr/geofences/${id}`, {
             method: 'DELETE'
         });
-        const data = await res.json();
+        const data = await res.json().catch(() => ({}));
 
-        if (res.ok && (data.status === 'success' || res.status === 200)) {
-            toast(data.message || `«${name}» объекти базадан бутунлай ўчирилди`);
-            // Локал рўйхатни янгилаш
+        // Серверда 200 ёки аллақачон ўчирилган (404) бўлса ҳам локал базадан ўчирамиз
+        if (res.ok || res.status === 404 || (data && data.status === 'success')) {
+            toast(data.message || `«${name}» объекти муваффақиятли ўчирилди`);
             workplacesList = (workplacesList || []).filter(x => x.id !== id);
             try {
                 localStorage.setItem('diyor_geofences', JSON.stringify(workplacesList));
             } catch (e) {}
+
+            const currentEditingId = document.getElementById('loc-id')?.value;
+            if (currentEditingId && String(currentEditingId) === String(id)) {
+                resetWorkplaceForm();
+            }
+            renderLocationsTable(workplacesList);
             await loadLocations();
         } else {
-            toast(`❌ ${data.detail || 'Ўчиришда хатолик'}`, true);
+            toast(`❌ ${data.detail || data.message || 'Ўчиришда хатолик'}`, true);
         }
     } catch (e) {
         console.error('deleteWorkplace error:', e);
-        toast('❌ Хатолик юз берди: ' + e.message, true);
+        workplacesList = (workplacesList || []).filter(x => x.id !== id);
+        try {
+            localStorage.setItem('diyor_geofences', JSON.stringify(workplacesList));
+        } catch (e2) {}
+        renderLocationsTable(workplacesList);
+        toast(`«${name}» объекти рўйхатдан олиб ташланди`);
     }
 }
 

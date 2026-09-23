@@ -141,7 +141,7 @@ class HRService:
                     await session.refresh(w)
                 locations = seeded_wps
             else:
-                # 2. Auto-seed default Bukhara workplaces if empty
+                # 2. Auto-seed default workplaces if empty (Марказий дўкон ва Piramit Tower)
                 default_wps = [
                     Workplace(
                         name="Марказий дўкон (Бухоро)",
@@ -152,19 +152,11 @@ class HRService:
                         is_active=1
                     ),
                     Workplace(
-                        name="Бабур кўчаси филиали (Бухоро)",
-                        address="Бухоро ш., Бобур кўчаси",
-                        latitude=39.768000,
-                        longitude=64.445000,
-                        radius_meters=150.0,
-                        is_active=1
-                    ),
-                    Workplace(
-                        name="Комил Қодиров отель объекти",
-                        address="Бухоро ш., К. Қодиров кўчаси",
-                        latitude=39.774550,
-                        longitude=64.428650,
-                        radius_meters=150.0,
+                        name="Piramit Tower (Тошкент, Бобур кўчаси)",
+                        address="Тошкент ш., Яккасарой т., Бобур кўчаси, 44B",
+                        latitude=41.281213,
+                        longitude=69.254539,
+                        radius_meters=300.0,
                         is_active=1
                     ),
                 ]
@@ -250,7 +242,9 @@ class HRService:
         res = await session.execute(stmt)
         wp = res.scalar_one_or_none()
         if not wp:
-            raise ValueError(f"Объект топилмади (ID: {location_id})")
+            # If not in DB, create new location cleanly without throwing 404
+            logger.info("workplace_not_found_on_update_creating_new", location_id=location_id)
+            return await self.create_location(session, data)
 
         if "name" in data and data["name"] is not None:
             wp.name = str(data["name"]).strip()
@@ -303,7 +297,11 @@ class HRService:
         res = await session.execute(stmt)
         wp = res.scalar_one_or_none()
         if not wp:
-            raise ValueError(f"Объект топилмади (ID: {location_id})")
+            # If not in DB, remove from geofences.json if present and return success
+            current_json = load_geofences_from_json()
+            filtered_json = [x for x in current_json if x.get("id") != location_id]
+            sync_geofences_to_json(filtered_json)
+            return {"status": "success", "message": f"Объект муваффақиятли ўчирилди (ID: {location_id})."}
 
         loc_name = wp.name
         if soft_delete:

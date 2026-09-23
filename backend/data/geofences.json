@@ -7,26 +7,16 @@
     "longitude": 64.432118,
     "radius_meters": 150.0,
     "is_active": true,
-    "created_at": "22.09.2026 05:05"
+    "created_at": "23.09.2026 09:00"
   },
   {
     "id": 2,
-    "name": "Бабур кўчаси филиали (Бухоро)",
-    "address": "Бухоро ш., Бобур кўчаси",
-    "latitude": 39.768,
-    "longitude": 64.445,
-    "radius_meters": 150.0,
+    "name": "Piramit Tower (Тошкент, Бобур кўчаси)",
+    "address": "Тошкент ш., Яккасарой т., Бобур кўчаси, 44B",
+    "latitude": 41.281213,
+    "longitude": 69.254539,
+    "radius_meters": 300.0,
     "is_active": true,
-    "created_at": "22.09.2026 11:46"
-  },
-  {
-    "id": 3,
-    "name": "Комил Қодиров отель объекти",
-    "address": "Бухоро ш., К. Қодиров кўчаси",
-    "latitude": 39.77455,
-    "longitude": 64.42865,
-    "radius_meters": 150.0,
-    "is_active": true,
-    "created_at": "22.09.2026 11:46"
+    "created_at": "23.09.2026 09:00"
   }
 ]
