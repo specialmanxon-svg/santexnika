@@ -411,6 +411,34 @@
             </div>
         </div>
 
+        <!-- Expenses by category (Статья расходов) -->
+        <div class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden mb-6">
+            <div class="px-4 py-3 border-b border-gray-200 bg-rose-50 flex items-center justify-between flex-wrap gap-2">
+                <div class="flex items-center gap-2">
+                    <span class="text-lg">📊</span>
+                    <h3 class="font-semibold text-rose-900">Харажатлар таркиби (Статья расходов)</h3>
+                </div>
+                <div class="flex items-center gap-2">
+                    <span id="expenses-total-badge" class="text-xs bg-rose-100 text-rose-800 px-3 py-1 rounded-full font-bold">Жами чиқим: —</span>
+                </div>
+            </div>
+            <div class="overflow-x-auto">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Категория номи</th>
+                            <th>Сумма (сўм)</th>
+                            <th>Фоиз (%)</th>
+                            <th class="w-1/3">Прогресс-бар индикатори</th>
+                        </tr>
+                    </thead>
+                    <tbody id="expenses-table">
+                        <tr><td colspan="4" class="text-center text-gray-400 py-8">Маълумотлар юкланмоқда...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
         <!-- Margin by category -->
         <div class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
             <div class="px-4 py-3 border-b border-gray-200 bg-blue-50">
@@ -567,19 +595,20 @@
                 <span class="text-xs font-bold text-purple-700 bg-white px-2.5 py-1 rounded-md border border-purple-200">Бонус: 2%</span>
             </div>
             <div class="overflow-x-auto">
-                <table>
+                <table class="w-full text-left">
                     <thead>
-                        <tr>
-                            <th class="w-12">#</th>
-                            <th>Сотувчи</th>
-                            <th>Савдо ҳажми (сўм)</th>
-                            <th>Сотувлар сони</th>
-                            <th>Ҳолат</th>
-                            <th>KPI бонус</th>
+                        <tr class="bg-purple-50/70 text-gray-700 text-xs border-b">
+                            <th class="w-12 text-center py-3">#</th>
+                            <th class="py-3">Сотувчи</th>
+                            <th class="text-right py-3">Савдо ҳажми (сўм)</th>
+                            <th class="text-center py-3">Сотувлар сони</th>
+                            <th class="text-right py-3 text-red-600 font-bold">Қарздорлик суммаси</th>
+                            <th class="text-right py-3 text-green-700 font-bold">KPI бонус (2%)</th>
+                            <th class="text-center py-3">Бонус ҳолати</th>
                         </tr>
                     </thead>
                     <tbody id="kpi-table">
-                        <tr><td colspan="6" class="text-center text-gray-400 py-8">Маълумотлар юкланмоқда...</td></tr>
+                        <tr><td colspan="7" class="text-center text-gray-400 py-8">Маълумотлар юкланмоқда...</td></tr>
                     </tbody>
                 </table>
             </div>
@@ -1996,6 +2025,9 @@ async function loadCashFlow(forceRefresh = false) {
     if (btn) btn.disabled = true;
     if (btnText) btnText.innerHTML = '<span class="loader align-middle mr-2"></span> Юкланмоқда...';
 
+    // Харажатлар таркибини ҳам параллел равишда юклаш
+    loadExpensesByCategory(forceRefresh);
+
     const cfTable = document.getElementById('cashflow-table');
     const mgTable = document.getElementById('margin-table');
 
@@ -2081,6 +2113,83 @@ async function loadCashFlow(forceRefresh = false) {
     } finally {
         if (btn) btn.disabled = false;
         if (btnText) btnText.innerHTML = '🔄 Янгилаш';
+    }
+}
+
+async function loadExpensesByCategory(forceRefresh = false) {
+    const expTable = document.getElementById('expenses-table');
+    const badge = document.getElementById('expenses-total-badge');
+    if (!expTable) return;
+
+    if (!expTable.querySelector('tr.data-row')) {
+        expTable.innerHTML = '<tr><td colspan="4" class="text-center text-gray-400 py-8"><span class="loader align-middle mr-2"></span> Харажатлар таркиби юкланмоқда...</td></tr>';
+    }
+
+    try {
+        const q = DateFilter.getQueryParams();
+        const url = `/finance/expenses-by-category?${q}${forceRefresh ? '&force_refresh=true' : ''}`;
+        const data = await apiFetch(url);
+
+        if (!data || !Array.isArray(data)) {
+            expTable.innerHTML = '<tr><td colspan="4" class="text-center text-gray-400 py-8">Харажатлар маълумоти олинмади</td></tr>';
+            return;
+        }
+
+        if (data.length === 0) {
+            expTable.innerHTML = '<tr><td colspan="4" class="text-center text-gray-400 py-8">Танланган даврда чиқимлар мавжуд эмас</td></tr>';
+            if (badge) badge.textContent = 'Жами чиқим: 0 сўм';
+            return;
+        }
+
+        const totalSum = data.reduce((acc, item) => acc + (item.amount || 0), 0);
+        if (badge) {
+            badge.textContent = `Жами чиқим: ${fmt(totalSum)} сўм`;
+        }
+
+        const colorPalette = [
+            'bg-rose-500',
+            'bg-blue-500',
+            'bg-amber-500',
+            'bg-emerald-500',
+            'bg-indigo-500',
+            'bg-purple-500',
+            'bg-cyan-500',
+            'bg-orange-500',
+            'bg-teal-500',
+            'bg-pink-500'
+        ];
+
+        expTable.innerHTML = data.map((item, idx) => {
+            const pct = Number(item.percentage ?? (totalSum > 0 ? (item.amount / totalSum * 100) : 0)).toFixed(1);
+            const color = colorPalette[idx % colorPalette.length];
+            const badgeColor = Number(pct) >= 30 ? 'bg-rose-100 text-rose-800' :
+                               Number(pct) >= 15 ? 'bg-amber-100 text-amber-800' :
+                               Number(pct) >= 5 ? 'bg-blue-100 text-blue-800' : 'bg-gray-100 text-gray-700';
+
+            return `
+                <tr class="data-row hover:bg-gray-50 transition">
+                    <td class="font-medium text-gray-900 flex items-center gap-2">
+                        <span class="inline-block w-2.5 h-2.5 rounded-full ${color}"></span>
+                        <span>${escapeHtml(item.category || 'Бошқа харажатлар')}</span>
+                    </td>
+                    <td class="num font-semibold text-rose-700">-${fmt(item.amount || 0)} сўм</td>
+                    <td class="num">
+                        <span class="text-xs px-2.5 py-0.5 rounded-full font-bold ${badgeColor}">${pct}%</span>
+                    </td>
+                    <td>
+                        <div class="flex items-center gap-2">
+                            <div class="w-full bg-gray-100 rounded-full h-2.5 overflow-hidden">
+                                <div class="${color} h-2.5 rounded-full transition-all duration-500" style="width: ${Math.min(Math.max(pct, 1), 100)}%"></div>
+                            </div>
+                        </div>
+                    </td>
+                </tr>
+            `;
+        }).join('');
+
+    } catch (err) {
+        console.error('loadExpensesByCategory error:', err);
+        expTable.innerHTML = `<tr><td colspan="4" class="text-center text-red-500 py-8">Хатолик: ${escapeHtml(err.message)}</td></tr>`;
     }
 }
 
@@ -2822,29 +2931,48 @@ async function loadTimesheet(isBackground = false) {
 
         if (tbodyKPI) {
             if (!kpiList.length) {
-                tbodyKPI.innerHTML = '<tr><td colspan="6" class="text-center text-gray-400 py-8">МойСклад базасида савдолар топилмади</td></tr>';
+                tbodyKPI.innerHTML = '<tr><td colspan="7" class="text-center text-gray-400 py-8">МойСклад базасида савдолар топилмади</td></tr>';
             } else {
                 tbodyKPI.innerHTML = kpiList.map((s, i) => {
-                    const isBlocked = !!s.is_bonus_blocked;
+                    const isBlocked = !!(s.is_bonus_blocked || !s.can_payout || s.has_overdue_debt);
                     const statusBadge = isBlocked
-                        ? `<span class="badge badge-red font-semibold text-xs py-0.5 px-2" title="${escapeHtml(s.blocked_debtors_info || '')}">⚠️ Қарздорлик туфайли музлатилди</span>`
-                        : `<span class="badge badge-green font-semibold text-xs py-0.5 px-2">✅ Фаол</span>`;
+                        ? `<span class="badge badge-red font-semibold text-xs py-1 px-2.5 rounded-lg inline-flex items-center gap-1 shadow-sm" title="${escapeHtml(s.blocked_debtors_info || '60+ кун кечиккан қарздор мижози бор')}">⚠️ Музлатилди</span>`
+                        : `<span class="badge badge-green font-semibold text-xs py-1 px-2.5 rounded-lg inline-flex items-center gap-1 shadow-sm">✅ Рухсат этилган</span>`;
+
+                    const totalDebt = s.total_debt || 0;
+                    const debtHtml = totalDebt > 0
+                        ? `<div class="text-right font-mono">
+                             <div class="font-bold text-red-600 text-sm">${s.formatted_total_debt || fmt(totalDebt) + ' сўм'}</div>
+                             ${isBlocked ? `<div class="text-[11px] text-red-500 font-medium mt-0.5">⚠️ Кечиккан: ${s.formatted_overdue_debt || fmt(s.overdue_debt || 0) + ' сўм'}</div>` : ''}
+                           </div>`
+                        : `<div class="text-right text-xs text-green-600 font-semibold font-mono">0 сўм</div>`;
 
                     const bonusHtml = isBlocked
-                        ? `<div class="line-through text-gray-400 text-xs">${s.formatted_bonus || fmt(s.bonus || 0) + ' сўм'}</div><div class="text-xs text-red-600 font-bold">0 сўм тўланади</div>`
-                        : `<span class="num text-green-700 font-bold">${s.formatted_bonus || fmt(s.bonus || 0) + ' сўм'}</span> <span class="text-xs text-green-600 font-normal">(${s.bonus_rate || '2%'})</span>`;
+                        ? `<div class="text-right">
+                             <div class="line-through text-gray-400 text-xs font-mono">${s.formatted_bonus || fmt(s.bonus || s.kpi_bonus || 0) + ' сўм'}</div>
+                             <div class="text-xs text-red-600 font-bold mt-0.5 font-mono">0 сўм тўланади</div>
+                             <div class="text-[10px] text-amber-800 bg-amber-100/80 rounded px-1.5 py-0.5 mt-1 inline-block font-medium">⚠️ Муддати ўтган қарз бор</div>
+                           </div>`
+                        : `<div class="text-right font-mono">
+                             <span class="num text-green-700 font-bold text-sm">${s.formatted_bonus || fmt(s.bonus || s.kpi_bonus || 0) + ' сўм'}</span>
+                             <span class="text-xs text-green-600 font-normal">(${s.bonus_rate || '2.0%'})</span>
+                           </div>`;
 
                     return `
-                    <tr class="hover:bg-gray-50/70 transition ${isBlocked ? 'bg-red-50/30' : ''}">
-                        <td class="text-gray-400 font-bold">${i + 1}</td>
-                        <td class="font-bold text-gray-900">
-                            <div>${escapeHtml(s.salesperson || s.name || '—')}</div>
-                            ${isBlocked && s.blocked_debtors_info ? `<div class="text-[11px] text-red-600 font-normal mt-0.5">⚠️ 60+ кун кечиккан қарздор мижози бор</div>` : ''}
+                    <tr class="hover:bg-gray-50/80 border-b transition ${isBlocked ? 'bg-red-50/20' : ''}">
+                        <td class="text-gray-400 font-bold text-center text-xs py-3">${i + 1}</td>
+                        <td class="font-bold text-gray-900 py-3">
+                            <div class="flex items-center gap-1.5">
+                                <span>👤</span>
+                                <span>${escapeHtml(s.salesperson || s.employee_name || s.name || '—')}</span>
+                            </div>
+                            ${isBlocked && s.blocked_debtors_info ? `<div class="text-[11px] text-red-600 font-normal mt-1 pl-5 leading-tight">⚠️ Кечиккан мижозлар: ${escapeHtml(s.blocked_debtors_info)}</div>` : ''}
                         </td>
-                        <td class="num font-bold text-gray-900">${s.formatted_sales || fmt(s.total_sales || 0) + ' сўм'}</td>
-                        <td class="num font-semibold">${s.deals_count || 0} та</td>
-                        <td>${statusBadge}</td>
-                        <td class="num bg-green-50/30">${bonusHtml}</td>
+                        <td class="num font-bold text-gray-900 text-right py-3">${s.formatted_sales || fmt(s.total_sales || s.sales_volume || 0) + ' сўм'}</td>
+                        <td class="num font-semibold text-center py-3">${s.deals_count || s.sales_count || 0} та</td>
+                        <td class="py-3">${debtHtml}</td>
+                        <td class="num bg-green-50/20 py-3">${bonusHtml}</td>
+                        <td class="text-center py-3">${statusBadge}</td>
                     </tr>
                     `;
                 }).join('');

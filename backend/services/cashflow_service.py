@@ -13,6 +13,27 @@ from sqlalchemy import select
 logger = structlog.get_logger(__name__)
 
 
+EXPENSE_CATEGORY_NAMES = {
+    "Аренда": "Ижара (Аренда)",
+    "Зарплата": "Иш ҳақи (Зарплата)",
+    "Логистика": "Транспорт ва логистика",
+    "Закупка товаров": "Товарлар хариди (Закупка)",
+    "Налоги и сборы": "Солиқлар ва йиғимлар",
+    "Коммунальные": "Коммунал тўловлар",
+    "Маркетинг и реклама": "Маркетинг ва реклама",
+    "Ремонт": "Таъмирлаш харажатлари (Ремонт)",
+    "Продукты питания": "Озиқ-овқат харажатлари",
+    "Перемещение": "Пул ўтказмалари (Перемещение)",
+    "Выплата тела кредита": "Кредит асосий қарзи тўлови",
+    "Вывод прибыли": "Фойда олиш (Дивиденд)",
+    "Проценты по кредиту": "Кредит фоизлари тўлови",
+    "Возврат": "Қайтарилган маблағлар (Возврат)",
+    "Прочие": "Бошқа харажатлар",
+    "Списания": "Ҳисобдан чиқариш (Списание)",
+    "Покупка основных средств": "Асосий воситалар хариди"
+}
+
+
 class CashFlowService:
     def __init__(self):
         self.ms_client = MoySkladClient()
@@ -24,6 +45,15 @@ class CashFlowService:
         self._category_cache = {
             "ts": 0.0,
             "map": {}
+        }
+        self._expense_items_cache = {
+            "ts": 0.0,
+            "map": {}
+        }
+        self._expenses_cache = {
+            "ts": 0.0,
+            "key": "",
+            "data": None
         }
 
     async def _get_category_map(self) -> Dict[str, str]:
@@ -45,6 +75,28 @@ class CashFlowService:
         self._category_cache["ts"] = now
         self._category_cache["map"] = cat_map
         return cat_map
+
+    async def _get_expense_items_map(self) -> Dict[str, str]:
+        """Fetch and cache all expense items from MoySklad API."""
+        now = time.time()
+        if self._expense_items_cache["map"] and (now - self._expense_items_cache["ts"] < 600):
+            return self._expense_items_cache["map"]
+
+        exp_map = {}
+        try:
+            items_data = await self.ms_client.get("/entity/expenseitem")
+            for row in items_data.get("rows", []):
+                item_id = row.get("id")
+                item_name = row.get("name")
+                if item_id and item_name:
+                    exp_map[item_id] = item_name
+        except Exception as e:
+            logger.warning("failed_to_fetch_expense_items_map", error=str(e))
+
+        if exp_map:
+            self._expense_items_cache["ts"] = now
+            self._expense_items_cache["map"] = exp_map
+        return exp_map or self._expense_items_cache.get("map", {})
 
     async def _fetch_payments_entity(self, entity: str, date_from: Optional[str] = None, date_to: Optional[str] = None) -> List[dict]:
         """Fetch payment or cash entity with date filtering and pagination."""
@@ -272,6 +324,85 @@ class CashFlowService:
                 "daily_flow": [],
                 "category_margin": []
             }
+
+    async def get_expenses_by_category(
+        self,
+        date_from: Optional[str] = None,
+        date_to: Optional[str] = None,
+        force_refresh: bool = False
+    ) -> List[Dict[str, Any]]:
+        """
+        Group outgoing payments (paymentout and cashout) by expenseItem (Статья расходов).
+        Returns list of categories formatted as:
+        [
+            { "category": "Ижара (Аренда)", "amount": 15000000.0, "percentage": 30.0 }, ...
+        ]
+        """
+        now_dt = datetime.now()
+        today_str = now_dt.strftime("%Y-%m-%d")
+
+        if not date_from:
+            date_from = f"{now_dt.year}-{now_dt.month:02d}-01"
+        if not date_to:
+            date_to = today_str
+
+        cache_key = f"{date_from}_{date_to}"
+        now_ts = time.time()
+        if not force_refresh and self._expenses_cache["data"] and self._expenses_cache["key"] == cache_key and (now_ts - self._expenses_cache["ts"] < 60):
+            return self._expenses_cache["data"]
+
+        logger.info("fetching_expenses_by_category", date_from=date_from, date_to=date_to, force_refresh=force_refresh)
+
+        try:
+            exp_map = await self._get_expense_items_map()
+
+            payment_out = await self._fetch_payments_entity("paymentout", date_from, date_to)
+            await asyncio.sleep(0.08)
+            cash_out = await self._fetch_payments_entity("cashout", date_from, date_to)
+
+            category_sums: Dict[str, float] = {}
+            total_expenses = 0.0
+
+            for p in payment_out + cash_out:
+                amt = float(p.get("sum", 0.0)) / 100.0
+                if amt <= 0:
+                    continue
+
+                exp_obj = p.get("expenseItem")
+                name = None
+                if isinstance(exp_obj, dict):
+                    name = exp_obj.get("name")
+                    if not name:
+                        href = exp_obj.get("meta", {}).get("href", "")
+                        exp_id = href.split("/")[-1] if href else None
+                        name = exp_map.get(exp_id)
+
+                if not name or not name.strip():
+                    name = "Бошқа харажатлар"
+
+                clean_name = EXPENSE_CATEGORY_NAMES.get(name, name)
+                category_sums[clean_name] = category_sums.get(clean_name, 0.0) + amt
+                total_expenses += amt
+
+            result = []
+            for cat, amt in sorted(category_sums.items(), key=lambda x: x[1], reverse=True):
+                pct = round((amt / total_expenses * 100.0), 1) if total_expenses > 0 else 0.0
+                result.append({
+                    "category": cat,
+                    "amount": round(amt, 2),
+                    "percentage": pct
+                })
+
+            self._expenses_cache["ts"] = now_ts
+            self._expenses_cache["key"] = cache_key
+            self._expenses_cache["data"] = result
+            return result
+
+        except Exception as e:
+            logger.error("failed_to_get_expenses_by_category", error=str(e))
+            if self._expenses_cache["data"]:
+                return self._expenses_cache["data"]
+            return []
 
     async def get_daily_cashflow(self, date_from: Optional[str] = None, date_to: Optional[str] = None) -> Dict[str, Any]:
         """Backward-compatible endpoint: delegates to get_cashflow_summary."""

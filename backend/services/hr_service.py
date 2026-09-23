@@ -669,12 +669,33 @@ class HRService:
         except Exception as exc:
             logger.error("moysklad_kpi_fetch_error", error=str(exc))
 
-        # Check overdue debtors (60+ days) per salesperson for KPI Bonus Freeze
-        seller_overdue_debtors: Dict[str, list] = {}
+        # Calculate debts and overdue debtors per salesperson from MoySklad
+        seller_debt_stats: Dict[str, Dict[str, Any]] = {}
         try:
             reports = await self.ms_client.get_all_counterparty_reports()
             details_map = await self.ms_client.get_counterparty_details_map()
             demand_sellers = await self.ms_client.get_latest_demand_sellers()
+
+            all_sellers = list(sales_map.keys())
+
+            def normalize_name(n: str) -> str:
+                return "".join(c for c in n.lower() if c.isalnum())
+
+            def match_seller(s_name: str) -> Optional[str]:
+                if not s_name or s_name in ("Тайинланмаган", "—", "Умумий савдолар"):
+                    return None
+                norm_s = normalize_name(s_name)
+                if not norm_s:
+                    return None
+                for target in all_sellers:
+                    norm_t = normalize_name(target)
+                    if norm_s == norm_t or norm_s in norm_t or norm_t in norm_s:
+                        return target
+                    s_words = [w for w in s_name.lower().replace(".", " ").split() if len(w) >= 3]
+                    t_words = [w for w in target.lower().replace(".", " ").split() if len(w) >= 3]
+                    if s_words and t_words and s_words[0] == t_words[0]:
+                        return target
+                return None
 
             now_dt = datetime.utcnow()
             for r in reports:
@@ -682,6 +703,29 @@ class HRService:
                 if bal >= 0:
                     continue
                 debt_val = abs(bal) / 100.0
+                if debt_val <= 0:
+                    continue
+
+                cp = r.get("counterparty", {})
+                cid = cp.get("id") or (cp.get("meta", {}).get("href", "").split("/")[-1].split("?")[0] if "meta" in cp else "")
+                cname = cp.get("name") or "Контрагент"
+                s_entry = demand_sellers.get(cid) or {}
+                raw_seller = s_entry.get("seller_name") or details_map.get(cid, {}).get("seller_name") or ""
+                
+                matched = match_seller(raw_seller)
+                if not matched:
+                    continue
+
+                if matched not in seller_debt_stats:
+                    seller_debt_stats[matched] = {
+                        "total_debt": 0.0,
+                        "overdue_debt": 0.0,
+                        "debtors_count": 0,
+                        "blocked_debtors": []
+                    }
+
+                seller_debt_stats[matched]["total_debt"] += debt_val
+                seller_debt_stats[matched]["debtors_count"] += 1
 
                 last_demand_str = r.get("lastDemandDate") or r.get("updated")
                 days_overdue = 0
@@ -694,24 +738,17 @@ class HRService:
                         pass
 
                 # If overdue > 60 days
-                if days_overdue > 60 and debt_val > 0:
-                    cp = r.get("counterparty", {})
-                    cid = cp.get("id") or (cp.get("meta", {}).get("href", "").split("/")[-1].split("?")[0] if "meta" in cp else "")
-                    cname = cp.get("name") or "Контрагент"
-                    s_entry = demand_sellers.get(cid) or {}
-                    s_name = s_entry.get("seller_name") or details_map.get(cid, {}).get("seller_name") or ""
-                    if s_name and s_name != "Тайинланмаган":
-                        if s_name not in seller_overdue_debtors:
-                            seller_overdue_debtors[s_name] = []
-                        seller_overdue_debtors[s_name].append({
-                            "client": cname,
-                            "debt": debt_val,
-                            "days": days_overdue
-                        })
+                if days_overdue > 60:
+                    seller_debt_stats[matched]["overdue_debt"] += debt_val
+                    seller_debt_stats[matched]["blocked_debtors"].append({
+                        "client": cname,
+                        "debt": debt_val,
+                        "days": days_overdue
+                    })
         except Exception as deb_err:
-            logger.warning("failed_to_check_seller_overdue_debtors", error=str(deb_err))
+            logger.warning("failed_to_calculate_seller_debts", error=str(deb_err))
 
-        # Calculate bonus and check for KPI Bonus Freeze
+        # Calculate bonus and check for KPI Bonus Freeze based on debts
         bonus_pct = settings.kpi_bonus_percent
         sorted_kpi = []
 
@@ -720,37 +757,55 @@ class HRService:
             deals = data["deals_count"]
             bonus = tot_sales * (bonus_pct / 100.0)
 
-            # Check if this seller has any overdue 60+ days debtors
-            blocked_debtors = []
-            clean_name = name.lower().replace(".", "").replace(" ", "")
-            for s_name, dlist in seller_overdue_debtors.items():
-                clean_s = s_name.lower().replace(".", "").replace(" ", "")
-                if clean_s in clean_name or clean_name in clean_s or any(p in clean_name for p in s_name.lower().split() if len(p) > 2):
-                    blocked_debtors.extend(dlist)
+            debt_info = seller_debt_stats.get(name, {
+                "total_debt": 0.0,
+                "overdue_debt": 0.0,
+                "debtors_count": 0,
+                "blocked_debtors": []
+            })
 
-            is_bonus_blocked = len(blocked_debtors) > 0
+            total_debt = debt_info["total_debt"]
+            overdue_debt = debt_info["overdue_debt"]
+            blocked_debtors = debt_info["blocked_debtors"]
+
+            # Overdue debt (60+ days) triggers KPI freeze
+            has_overdue_debt = (overdue_debt > 0 or len(blocked_debtors) > 0)
+            is_bonus_blocked = has_overdue_debt
+            can_payout = not is_bonus_blocked
+
             if is_bonus_blocked:
-                bonus_status = "⚠️ Қарздорлик туфайли музлатилди"
+                bonus_status = "⚠️ Музлатилди"
                 payable_bonus = 0.0
-                blocked_info = ", ".join([f"{d['client']} ({int(round(d['debt'])):,} сўм)".replace(",", " ") for d in blocked_debtors[:3]])
+                blocked_info = ", ".join([f"{d['client']} ({int(round(d['debt'])):_} сўм, {d['days']} кун)".replace("_", " ") for d in blocked_debtors[:3]])
             else:
-                bonus_status = "Фаол"
+                bonus_status = "✅ Рухсат этилган"
                 payable_bonus = bonus
                 blocked_info = ""
 
             sorted_kpi.append({
+                "employee_name": name,
                 "salesperson": name,
                 "name": name,
+                "sales_volume": round(tot_sales, 2),
+                "sales_count": deals,
                 "total_sales": round(tot_sales, 2),
                 "formatted_sales": format_money(tot_sales),
                 "deals_count": deals,
                 "bonus": round(bonus, 2),
+                "kpi_bonus": round(bonus, 2),
                 "formatted_bonus": format_money(bonus),
                 "payable_bonus": round(payable_bonus, 2),
                 "formatted_payable_bonus": format_money(payable_bonus),
-                "bonus_rate": f"{bonus_pct}%",
+                "total_debt": round(total_debt, 2),
+                "formatted_total_debt": format_money(total_debt),
+                "overdue_debt": round(overdue_debt, 2),
+                "formatted_overdue_debt": format_money(overdue_debt),
+                "debtors_count": debt_info["debtors_count"],
+                "has_overdue_debt": has_overdue_debt,
+                "can_payout": can_payout,
                 "is_bonus_blocked": is_bonus_blocked,
                 "bonus_status": bonus_status,
+                "bonus_rate": f"{bonus_pct}%",
                 "blocked_debtors": blocked_debtors,
                 "blocked_debtors_info": blocked_info
             })
@@ -760,6 +815,7 @@ class HRService:
         total_calculated_bonus = sum(k["bonus"] for k in sorted_kpi)
         total_payable_bonus = sum(k["payable_bonus"] for k in sorted_kpi)
         frozen_bonus = total_calculated_bonus - total_payable_bonus
+        total_seller_debt = sum(k["total_debt"] for k in sorted_kpi)
 
         res_data = {
             "period": period,
@@ -773,6 +829,8 @@ class HRService:
             "formatted_total_payable_bonus": format_money(total_payable_bonus),
             "frozen_bonus": frozen_bonus,
             "formatted_frozen_bonus": format_money(frozen_bonus),
+            "total_seller_debt": total_seller_debt,
+            "formatted_total_seller_debt": format_money(total_seller_debt),
             "kpi": sorted_kpi,
             "salespeople": sorted_kpi
         }

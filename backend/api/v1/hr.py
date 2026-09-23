@@ -152,14 +152,16 @@ async def get_timesheet(
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
 
 
-@router.get("/sales-kpi", summary="МойСклад савдолари асосида сотувчиларнинг KPI бонуси")
+@router.get("/sales-kpi", summary="МойСклад савдолари асосида сотувчиларнинг KPI бонуси ва дебиторкаси")
 async def get_sales_kpi(
     period: str = Query("monthly", description="Давр: monthly, weekly, today"),
+    from_date: Optional[str] = Query(None, description="Бошланиш санаси (YYYY-MM-DD)"),
+    to_date: Optional[str] = Query(None, description="Тугаш санаси (YYYY-MM-DD)"),
     session: AsyncSession = Depends(get_db)
 ):
-    """Сотувчилар савдо ҳажми, чеклар сони ва 2% KPI бонуси."""
+    """Сотувчилар савдо ҳажми, чеклар сони, дебиторлик қарзи ва 2% KPI бонуси."""
     try:
-        return await hr_service.get_sales_kpi(period)
+        return await hr_service.get_sales_kpi(period=period, from_date=from_date, to_date=to_date)
     except Exception as e:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
 
