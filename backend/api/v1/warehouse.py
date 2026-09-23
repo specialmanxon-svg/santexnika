@@ -1,15 +1,134 @@
 """Warehouse & Inventory Audit API router (Diyor Group)."""
-from typing import Optional
+import time
+from typing import Optional, List, Dict, Any
+from datetime import datetime, timedelta
+
 from fastapi import APIRouter, HTTPException, Query, Depends
+from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
+import httpx
+import structlog
+
 from core.database import get_db, AsyncSessionLocal
 from agents.inventory_agent import InventoryAgent
 from services.moysklad_client import MoySkladClient
+from config import settings
+
+logger = structlog.get_logger(__name__)
 
 router = APIRouter(prefix="/warehouse", tags=["Омбор ва Товар Аудити"])
 inventory_agent = InventoryAgent()
 
 _brands_cache = {"ts": 0.0, "data": []}
+_SALES_30D_CACHE = {"ts": 0.0, "data": {}}
+
+# Расмий МойСклад таъминотчилари (Контрагентлар) базаси билан боғлаш
+KNOWN_SUPPLIERS = {
+    "GROHE": {
+        "id": "7447735b-e72e-11ed-0a80-11080021744a",
+        "name": "ООО GROHE (Расмий дистрибьютор)"
+    },
+    "DCO": {
+        "id": "035ed044-b42e-11ed-0a80-0db300302fa4",
+        "name": "Тошкент DCO Таъминот"
+    },
+    "RAGLO": {
+        "id": "844be85e-5e25-11ef-0a80-18590041a9c6",
+        "name": "ТОШКЕНТ RAGLO (Турба ва фитинглар)"
+    },
+    "MORTON": {
+        "id": "46b8efce-543e-11f1-0a80-156e000f3983",
+        "name": "Morton sanitary (Ванна ва смесителлар)"
+    },
+    "DUSEL": {
+        "id": "9623e6f5-c78f-11f0-0a80-10c800193501",
+        "name": "ДУСЕЛЛ ЭЛЕКТРО ТОВАР"
+    },
+    "TREND": {
+        "id": "febf71b7-ca90-11f0-0a80-036c00029f4f",
+        "name": "TREND (Китай сантехника)"
+    },
+    "LINDA": {
+        "id": "48dfaaa7-6e94-11f0-0a80-06360002d61d",
+        "name": "LINDA-ZUF ZOTTO (Сантехника)"
+    },
+    "TRITON": {
+        "id": "0059eff5-5f36-11f1-0a80-17b0000b73c2",
+        "name": "ТРИТОН ВАННА"
+    },
+    "TEKBOND": {
+        "id": "6e83c063-a124-11f1-0a80-05b00008357e",
+        "name": "ТЕКБОНД (Елим ва герметиклар)"
+    },
+    "VALIS": {
+        "id": "5773757a-166b-11ef-0a80-13d00033335f",
+        "name": "ВАЛИС МАГАЗИН (Сантехника)"
+    },
+    "DEFAULT": {
+        "id": "7447735b-e72e-11ed-0a80-11080021744a",
+        "name": "Асосий таъминотчи (GROHE / Сантехника марказ)"
+    }
+}
+
+
+def resolve_supplier_for_item(item: dict) -> dict:
+    """Товар номи, бренди ва каталогига қараб МойСклад'даги мос таъминотчини аниқлаш."""
+    brand = (item.get("brand") or "").upper()
+    name = (item.get("name") or "").upper()
+    path = (item.get("path_name") or "").upper()
+    full_text = f"{brand} {name} {path}"
+
+    if "GROHE" in full_text:
+        return KNOWN_SUPPLIERS["GROHE"]
+    if "DCO" in full_text:
+        return KNOWN_SUPPLIERS["DCO"]
+    if "RAGLO" in full_text or "SPLENKA" in full_text:
+        return KNOWN_SUPPLIERS["RAGLO"]
+    if "MORTON" in full_text:
+        return KNOWN_SUPPLIERS["MORTON"]
+    if "DUSEL" in full_text or "ДУСЕЛ" in full_text:
+        return KNOWN_SUPPLIERS["DUSEL"]
+    if "TREND" in full_text:
+        return KNOWN_SUPPLIERS["TREND"]
+    if "LINDA" in full_text or "ZOTTO" in full_text:
+        return KNOWN_SUPPLIERS["LINDA"]
+    if "TRITON" in full_text or "ТРИТОН" in full_text or "ВАННА" in full_text:
+        return KNOWN_SUPPLIERS["TRITON"]
+    if "TEKBOND" in full_text or "КЛЕЙ" in full_text:
+        return KNOWN_SUPPLIERS["TEKBOND"]
+    if "ВАЛИС" in full_text or "VALIS" in full_text:
+        return KNOWN_SUPPLIERS["VALIS"]
+
+    return KNOWN_SUPPLIERS["DEFAULT"]
+
+
+async def fetch_30d_product_sales(ms_client: MoySkladClient, force_refresh: bool = False) -> Dict[str, float]:
+    """МойСклад API'дан охирги 30 кунлик сотилган соф маҳсулотлар миқдорини олиш."""
+    now_ts = time.time()
+    if not force_refresh and (now_ts - _SALES_30D_CACHE["ts"] < 300.0) and _SALES_30D_CACHE["data"]:
+        return _SALES_30D_CACHE["data"]
+
+    sales_map: Dict[str, float] = {}
+    try:
+        date_from = (datetime.now() - timedelta(days=30)).strftime("%Y-%m-%d 00:00:00")
+        profit_data = await ms_client.get("/report/profit/byproduct", params={"momentFrom": date_from, "limit": 1000})
+        for r in profit_data.get("rows", []):
+            assort = r.get("assortment", {})
+            m_meta = assort.get("meta", {})
+            href = m_meta.get("href", "")
+            if href:
+                pid = href.split("/")[-1].split("?")[0]
+                sell_q = float(r.get("sellQuantity", 0.0))
+                ret_q = float(r.get("returnQuantity", 0.0))
+                net_qty = max(0.0, sell_q - ret_q)
+                sales_map[pid] = net_qty
+    except Exception as e:
+        logger.warning("failed_to_fetch_30d_sales", error=str(e))
+
+    if sales_map:
+        _SALES_30D_CACHE["ts"] = now_ts
+        _SALES_30D_CACHE["data"] = sales_map
+    return sales_map or _SALES_30D_CACHE.get("data", {})
 
 
 @router.get("/brands")
@@ -18,7 +137,6 @@ async def get_brands():
     МойСклад «Справочники -> Бренды товара» (customentity/056f61f9-de5c-11ef-0a80-06ae0020cdd6)
     махсус маълумотномасидан ҳақиқий брендлар рўйхатини олиш.
     """
-    import time
     now = time.time()
     if _brands_cache["data"] and (now - _brands_cache["ts"] < 300):
         return {
@@ -58,8 +176,6 @@ async def full_audit(
     - Захираси тугаётган топ-товарлар
     - Умумлаштирувчи карточкалар (Жами, Ноликвид, Музлаган, Тугаётган)
     """
-    df = from_date or date_from
-    dt = to_date or date_to
     try:
         async with AsyncSessionLocal() as session:
             result = await inventory_agent.audit_inventory_liquidity(session, force_refresh=force_refresh)
@@ -115,108 +231,198 @@ async def get_low_stock(threshold: int = Query(5, description="Минимал қ
         raise HTTPException(status_code=500, detail=str(e))
 
 
-from pydantic import BaseModel, Field
-from datetime import datetime
-import httpx
-import structlog
-from config import settings
+# ═══════════════ ТАЪМИНОТЧИЛАР БЎЙИЧА 30 КУНЛИК СОТУВ ВА ТАВСИЯ ═══════════════
 
-logger = structlog.get_logger(__name__)
-
-
-class PurchaseOrderCreateRequest(BaseModel):
-    product_id: str = Field(..., description="МойСклад маҳсулот ID ёки UUID")
-    quantity: float = Field(default=10.0, description="Буюртма миқдори (дона)")
-    supplier_id: Optional[str] = Field(default=None, description="Таъминотчи ID (ихтиёрий)")
-    notes: Optional[str] = Field(default="", description="Қўшимча изоҳ")
-
-
-@router.post("/create-purchase-order", summary="МойСклад: Заказ поставщику яратиш")
-async def create_purchase_order(payload: PurchaseOrderCreateRequest):
+@router.get("/low-stock-by-suppliers", summary="Захираси тугаётган товарларни таъминотчилар бўйича гуруҳлаш ва 30 кунлик тавсия")
+async def get_low_stock_by_suppliers(
+    threshold: int = Query(5, description="Минимал қолдиқ чегараси"),
+    force_refresh: bool = Query(False, description="Маълумотларни янгилаб олиш")
+):
     """
-    Захираси тугаётган товар учун МойСклад'да «Заказ поставщику» яратиш
-    ва корхонанинг ички Раҳбарият/Таъминотчи гуруҳига Telegram хабарнома юбориш.
+    1. МойСклад API'дан охирги 30 кунлик савдо маълумотларини олиб, ҳар бир товарнинг кунлик ўртача сотув тезлигини ҳисоблайди.
+    2. 30 кунлик хавфсиз захира учун тавсия миқдорини аниқлайди:
+       recommended_qty = max(round((daily_sales * 30) - current_stock), 1)
+    3. Товарларни ўз таъминотчилари бўйича гуруҳлаб қайтаради.
     """
     ms_client = MoySkladClient()
     try:
-        # 1. Маҳсулот маълумотларини олиш
-        clean_pid = payload.product_id.strip()
-        product = await ms_client._request("GET", f"/entity/product/{clean_pid}")
-        if not product:
-            raise HTTPException(status_code=404, detail="МойСклад базасида маҳсулот топилмади")
+        async with AsyncSessionLocal() as session:
+            result = await inventory_agent.audit_inventory_liquidity(session, force_refresh=force_refresh)
+            all_low_stock = result.get("low_stock_items", [])
+            filtered = [it for it in all_low_stock if it.get("stock_qty", 0) <= threshold]
 
-        product_name = product.get("name", "Номаълум маҳсулот")
-        product_meta = product.get("meta")
-        buy_price = product.get("buyPrice", {}).get("value", 0.0)
-        if buy_price <= 0 and product.get("salePrices"):
-            buy_price = product.get("salePrices")[0].get("value", 0.0) * 0.7
+        sales_map = await fetch_30d_product_sales(ms_client, force_refresh=force_refresh)
 
-        # 2. Таъминотчини аниқлаш
-        supplier_name = "Стандарт таъминотчи"
+        suppliers_map: Dict[str, Dict[str, Any]] = {}
+
+        for it in filtered:
+            pid = it.get("id") or it.get("product_id") or it.get("sku") or ""
+            sold_30d = float(sales_map.get(pid, 0.0))
+            daily_sales = round(sold_30d / 30.0, 2)
+            current_stock = float(it.get("stock_qty", 0.0))
+
+            # Талаб этилган формула: recommended_qty = max(round((daily_sales * 30) - current_stock), 1)
+            rec_qty = max(int(round((daily_sales * 30.0) - current_stock)), 1)
+            buy_price = float(it.get("buy_price", 0.0))
+            retail_price = float(it.get("retail_price", 0.0))
+            estimated_sum = round(rec_qty * buy_price, 2)
+
+            sup_info = resolve_supplier_for_item(it)
+            s_id = sup_info["id"]
+            s_name = sup_info["name"]
+
+            if s_id not in suppliers_map:
+                suppliers_map[s_id] = {
+                    "supplier_id": s_id,
+                    "supplier_name": s_name,
+                    "total_items": 0,
+                    "total_recommended_qty": 0,
+                    "total_estimated_sum": 0.0,
+                    "items": []
+                }
+
+            enriched_item = {
+                "product_id": pid,
+                "id": pid,
+                "sku": it.get("sku", "—"),
+                "name": it.get("name", "Номаълум товар"),
+                "brand": it.get("brand", ""),
+                "category": it.get("category", "Сантехника"),
+                "path_name": it.get("path_name", ""),
+                "current_stock": current_stock,
+                "sales_30d": sold_30d,
+                "daily_sales": daily_sales,
+                "recommended_qty": rec_qty,
+                "buy_price": buy_price,
+                "retail_price": retail_price,
+                "estimated_sum": estimated_sum
+            }
+
+            suppliers_map[s_id]["items"].append(enriched_item)
+            suppliers_map[s_id]["total_items"] += 1
+            suppliers_map[s_id]["total_recommended_qty"] += rec_qty
+            suppliers_map[s_id]["total_estimated_sum"] += estimated_sum
+
+        suppliers_list = list(suppliers_map.values())
+        suppliers_list.sort(key=lambda s: s["total_estimated_sum"], reverse=True)
+
+        return {
+            "status": "success",
+            "threshold": threshold,
+            "total_suppliers": len(suppliers_list),
+            "total_low_stock_items": len(filtered),
+            "suppliers": suppliers_list
+        }
+    except Exception as e:
+        logger.error("low_stock_by_suppliers_error", error=str(e))
+        raise HTTPException(status_code=500, detail=f"Таъминотчилар бўйича таҳлилда хатолик: {str(e)}")
+    finally:
+        await ms_client.close()
+
+
+# ═══════════════ ТАЪМИНОТЧИ БЎЙИЧА ЯГОНА БУЮРТМА ЯРАТИШ (BULK) ═══════════════
+
+class BulkOrderItem(BaseModel):
+    product_id: str = Field(..., description="Маҳсулот ID ёки UUID")
+    quantity: float = Field(..., description="Буюртма миқдори (дона)")
+    buy_price: Optional[float] = Field(default=0.0, description="Харид нархи (сўм)")
+    name: Optional[str] = Field(default=None, description="Товар номи")
+
+
+class BulkSupplierOrderRequest(BaseModel):
+    supplier_id: str = Field(..., description="Таъминотчи ID (Контрагент UUID)")
+    supplier_name: Optional[str] = Field(default=None, description="Таъминотчи номи")
+    items: List[BulkOrderItem] = Field(..., description="Буюртма бериладиган товарлар рўйхати")
+    notes: Optional[str] = Field(default="", description="Қўшимча изоҳ")
+
+
+@router.post("/create-bulk-supplier-order", summary="МойСклад: Таъминотчи бўйича ягона Заказ поставщику яратиш")
+async def create_bulk_supplier_order(payload: BulkSupplierOrderRequest):
+    """
+    Бир хил таъминотчига тегишли барча товарларни сотув тарихи асосида битта умумий
+    «Заказ поставщику» (purchaseorder) ҳужжатига жамлаб МойСклад'да яратиш
+    ва Telegram (@Diyor_santexnika_2004_bot) орқали раҳбариятга хабарнома юбориш.
+    """
+    if not payload.items:
+        raise HTTPException(status_code=400, detail="Буюртма учун товарлар кўрсатилмаган")
+
+    ms_client = MoySkladClient()
+    try:
+        # 1. Таъминотчи маълумотларини текшириш
+        supplier_id = payload.supplier_id.strip()
+        supplier_name = payload.supplier_name or "Асосий таъминотчи"
         supplier_meta = None
 
-        if payload.supplier_id:
-            try:
-                sup = await ms_client._request("GET", f"/entity/counterparty/{payload.supplier_id}")
+        try:
+            sup = await ms_client._request("GET", f"/entity/counterparty/{supplier_id}")
+            if sup:
                 supplier_name = sup.get("name", supplier_name)
                 supplier_meta = sup.get("meta")
-            except Exception:
-                pass
+        except Exception:
+            pass
 
-        if not supplier_meta and product.get("supplier"):
-            sup_ref = product["supplier"].get("meta", {}).get("href")
-            if sup_ref:
-                try:
-                    sup_id = sup_ref.split("/")[-1]
-                    sup = await ms_client._request("GET", f"/entity/counterparty/{sup_id}")
-                    supplier_name = sup.get("name", supplier_name)
-                    supplier_meta = sup.get("meta")
-                except Exception:
-                    supplier_meta = product["supplier"].get("meta")
-
-        # Агар таъминотчи кўрсатилмаган бўлса, стандарт захира таъминотчисини танлаш
         if not supplier_meta:
-            try:
-                recent_po = await ms_client._request("GET", "/entity/purchaseorder", params={"limit": 1})
-                if recent_po.get("rows"):
-                    supplier_meta = recent_po["rows"][0].get("agent", {}).get("meta")
-                    sup_id = supplier_meta.get("href", "").split("/")[-1]
-                    sup = await ms_client._request("GET", f"/entity/counterparty/{sup_id}")
-                    supplier_name = sup.get("name", "ООО GROHE")
-                else:
-                    cp_list = await ms_client._request("GET", "/entity/counterparty", params={"limit": 1})
-                    if cp_list.get("rows"):
-                        supplier_meta = cp_list["rows"][0].get("meta")
-                        supplier_name = cp_list["rows"][0].get("name", "Асосий таъминотчи")
-            except Exception:
-                default_sup_id = "7447735b-e72e-11ed-0a80-11080021744a"
-                supplier_meta = {
-                    "href": f"{settings.moysklad_api_url}/entity/counterparty/{default_sup_id}",
-                    "type": "counterparty",
-                    "mediaType": "application/json"
+            default_sup_id = "7447735b-e72e-11ed-0a80-11080021744a"
+            supplier_meta = {
+                "href": f"{settings.moysklad_api_url}/entity/counterparty/{default_sup_id}",
+                "type": "counterparty",
+                "mediaType": "application/json"
+            }
+            supplier_name = supplier_name or "ООО GROHE"
+
+        # 2. Позициялар рўйхатини тузиш
+        positions = []
+        total_sum = 0.0
+        total_qty = 0.0
+        items_summary = []
+
+        for it in payload.items:
+            qty = float(it.quantity)
+            if qty <= 0:
+                continue
+            clean_pid = it.product_id.strip()
+            buy_price = float(it.buy_price or 0.0)
+            price_kop = int(round(buy_price * 100))
+
+            positions.append({
+                "quantity": qty,
+                "price": price_kop,
+                "assortment": {
+                    "meta": {
+                        "href": f"{settings.moysklad_api_url}/entity/product/{clean_pid}",
+                        "type": "product",
+                        "mediaType": "application/json"
+                    }
                 }
-                supplier_name = "ООО GROHE"
+            })
+            item_total = qty * buy_price
+            total_sum += item_total
+            total_qty += qty
+            pname = it.name or f"Товар ID: {clean_pid[:8]}"
+            items_summary.append({
+                "name": pname,
+                "qty": qty,
+                "price": buy_price,
+                "total": item_total
+            })
 
-        # 3. МойСклад API: Заказ поставщику яратиш
+        if not positions:
+            raise HTTPException(status_code=400, detail="Барча танланган товарлар миқдори нол бўлиши мумкин эмас")
+
+        # 3. МойСклад'да «Заказ поставщику» яратиш
         org_id = settings.moysklad_organization_id or "c5a0e76e-b1a3-11ed-0a80-0bcd0004345d"
-        org_meta = {
-            "href": f"{settings.moysklad_api_url}/entity/organization/{org_id}",
-            "type": "organization",
-            "mediaType": "application/json"
-        }
-
         order_payload = {
             "applicable": False,
-            "organization": {"meta": org_meta},
-            "agent": {"meta": supplier_meta},
-            "positions": [
-                {
-                    "quantity": float(payload.quantity),
-                    "price": float(buy_price),
-                    "assortment": {"meta": product_meta}
+            "organization": {
+                "meta": {
+                    "href": f"{settings.moysklad_api_url}/entity/organization/{org_id}",
+                    "type": "organization",
+                    "mediaType": "application/json"
                 }
-            ],
-            "description": f"Diyor Group Dashboard: Захираси тугаётган товар учун буюртма. Товар: {product_name}. {payload.notes}".strip()
+            },
+            "agent": {"meta": supplier_meta},
+            "positions": positions,
+            "description": f"Diyor Group Dashboard: Таъминотчи ({supplier_name}) бўйича умумий буюртма ({len(positions)} та позиция). {payload.notes or ''}".strip()
         }
 
         order_id = None
@@ -233,22 +439,32 @@ async def create_purchase_order(payload: PurchaseOrderCreateRequest):
         except Exception as ms_err:
             err_str = str(ms_err)
             if "1045" in err_str or "403" in err_str:
-                permission_warning = (
-                    "МойСклад ҳуқуқи: bot@prestij_diyor фойдаланувчисига МойСклад созламаларида "
-                    "«Заказы поставщикам -> Создание» ҳуқуқини ёқиш лозим."
-                )
+                permission_warning = "МойСклад созламаларида «Заказы поставщикам -> Создание» ҳуқуқини ёқиш лозим."
             else:
-                logger.warning("moysklad_po_create_error", error=err_str)
+                logger.warning("moysklad_bulk_po_error", error=err_str)
 
-        # 4. Ички ходим / Раҳбариятга Telegram хабарнома юбориш (@Diyor_santexnika_2004_bot)
-        qty_display = int(payload.quantity) if payload.quantity.is_integer() else payload.quantity
+        # 4. Ички ходим / Раҳбариятга Telegram орқали батафсил хабарнома
+        items_preview_lines = []
+        for i, s_item in enumerate(items_summary[:7], 1):
+            q_disp = int(s_item["qty"]) if s_item["qty"].is_integer() else s_item["qty"]
+            p_disp = f"{int(s_item['price']):,}".replace(",", " ")
+            items_preview_lines.append(f"{i}. <b>{s_item['name']}</b> — {q_disp} дона ({p_disp} сўм)")
+        if len(items_summary) > 7:
+            items_preview_lines.append(f"<i>...ва яна {len(items_summary) - 7} та қўшимча товар</i>")
+
+        items_text = "\n".join(items_preview_lines)
+        tot_sum_disp = f"{int(total_sum):,}".replace(",", " ")
+        tot_qty_disp = int(total_qty) if total_qty.is_integer() else total_qty
+
         telegram_text = (
-            "📦 <b>МОЙСКЛАД: ЯНГИ БУЮРТМА ЯРАТИЛДИ!</b>\n\n"
-            f"🔹 <b>Товар:</b> {product_name}\n"
-            f"🔹 <b>Ҳужжат рақами:</b> Заказ поставщику №{order_name}\n"
-            f"🔹 <b>Таъминотчи:</b> {supplier_name}\n"
-            f"🔹 <b>Буюртма миқдори:</b> {qty_display} дона\n\n"
-            "<i>Илтимос, МойСклад тизимига кириб, буюртмани тасдиқланг ва жўнатинг.</i>"
+            "📦 <b>МОЙСКЛАД: ТАЪМИНОТЧИ БЎЙИЧА ЯГОНА БУЮРТМА!</b>\n\n"
+            f"🏢 <b>Таъминотчи:</b> {supplier_name}\n"
+            f"📄 <b>Ҳужжат рақами:</b> Заказ поставщику №{order_name}\n"
+            f"📊 <b>Позициялар сони:</b> {len(positions)} хил товар\n"
+            f"🔢 <b>Жами ҳажм:</b> {tot_qty_disp} дона\n"
+            f"💰 <b>Умумий харид қиймати:</b> {tot_sum_disp} сўм\n\n"
+            f"📋 <b>Буюртма таркиби (топ товарлар):</b>\n{items_text}\n\n"
+            "<i>Ҳужжат МойСклад «Закупки -> Заказы поставщикам» бўлимига сақланди.</i>"
         )
 
         tg_sent = False
@@ -268,25 +484,47 @@ async def create_purchase_order(payload: PurchaseOrderCreateRequest):
                         if t_res.status_code == 200:
                             tg_sent = True
                     except Exception as tg_err:
-                        logger.warning("telegram_notify_failed", chat_id=cid, error=str(tg_err))
+                        logger.warning("telegram_bulk_po_notify_failed", chat_id=cid, error=str(tg_err))
 
         return {
             "status": "success",
             "order_id": order_id,
             "order_name": order_name,
-            "product_name": product_name,
+            "supplier_id": supplier_id,
             "supplier_name": supplier_name,
-            "quantity": payload.quantity,
+            "positions_count": len(positions),
+            "total_quantity": total_qty,
+            "total_sum": total_sum,
             "ms_created": ms_created,
             "telegram_notified": tg_sent,
             "permission_warning": permission_warning,
-            "message": f"МойСклад'да Заказ поставщику №{order_name} яратилди ва Telegram'га хабарнома юборилди!"
+            "message": f"Таъминотчи ({supplier_name}) бўйича МойСклад'да Заказ поставщику №{order_name} яратилди ва Telegram'га хабарнома юборилди!"
         }
 
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Буюртма яратишда хатолик: {str(e)}")
+        logger.error("create_bulk_supplier_order_failed", error=str(e))
+        raise HTTPException(status_code=500, detail=f"Ягона буюртма яратишда хатолик: {str(e)}")
     finally:
         await ms_client.close()
 
+
+# ═══════════════ ЯККА ТАРТИБДАГИ БУЮРТМА (ОРҚАГА МУТОБИҚЛИК УЧУН) ═══════════════
+
+class PurchaseOrderCreateRequest(BaseModel):
+    product_id: str = Field(..., description="МойСклад маҳсулот ID ёки UUID")
+    quantity: float = Field(default=10.0, description="Буюртма миқдори (дона)")
+    supplier_id: Optional[str] = Field(default=None, description="Таъминотчи ID (ихтиёрий)")
+    notes: Optional[str] = Field(default="", description="Қўшимча изоҳ")
+
+
+@router.post("/create-purchase-order", summary="МойСклад: Битта товар учун Заказ поставщику яратиш")
+async def create_purchase_order(payload: PurchaseOrderCreateRequest):
+    """Ягона товар учун МойСклад'да «Заказ поставщику» яратиш (орқага мутобиқлик учун сақланган)."""
+    bulk_req = BulkSupplierOrderRequest(
+        supplier_id=payload.supplier_id or "7447735b-e72e-11ed-0a80-11080021744a",
+        items=[BulkOrderItem(product_id=payload.product_id, quantity=payload.quantity)],
+        notes=payload.notes
+    )
+    return await create_bulk_supplier_order(bulk_req)
