@@ -16,6 +16,9 @@ from sqlalchemy import select, update
 from core.database import get_db
 from models.debt import DebtRegistry
 from models.audit import AuditEvent
+from models.hr import AuthorizedEmployee
+from config import settings
+import os
 
 from services.moysklad_client import MoySkladClient
 from services.debt_checker import debt_checker, DEFAULT_DEBTORS
@@ -50,6 +53,15 @@ class SendAlertTelegramRequest(BaseModel):
     urgent: Optional[bool] = True
 
 
+class NotifySellerDebtRequest(BaseModel):
+    counterparty_id: str
+    counterparty_name: Optional[str] = None
+    seller_name: Optional[str] = None
+    seller_id: Optional[str] = None
+    debt_amount: Optional[float] = None
+    days_overdue: Optional[int] = None
+
+
 @router.get("/overview")
 async def get_debts_overview(
     from_date: Optional[str] = Query(None, description="Бошланиш санаси (YYYY-MM-DD)"),
@@ -66,6 +78,7 @@ async def get_debts_overview(
         # 1. Single fetch for reports and details (cached)
         all_reports = await ms_client.get_all_counterparty_reports()
         details_map = await ms_client.get_counterparty_details_map()
+        demand_sellers = await ms_client.get_latest_demand_sellers()
         total_counterparties_count = max(len(all_reports), 1436)
 
         # 2. Fetch local DB DebtRegistry records for Hard-Lock status
@@ -113,6 +126,11 @@ async def get_debts_overview(
             tags = cp_det.get("tags") or []
             is_tag_blocked = any(t.upper() in ["BLOCKED", "HARD-LOCK", "LOCK"] for t in tags)
 
+            # Determine responsible salesperson (latest demand.owner or counterparty.owner)
+            seller_entry = demand_sellers.get(cp_id) or {}
+            seller_name = seller_entry.get("seller_name") or cp_det.get("seller_name") or "Тайинланмаган"
+            seller_id = seller_entry.get("seller_id") or cp_det.get("seller_id") or ""
+
             last_demand_str = r.get("lastDemandDate")
             days_overdue = 0
             last_demand_display = "—"
@@ -159,6 +177,8 @@ async def get_debts_overview(
                     "company_title": name,
                     "phone": phone if phone else "—",
                     "telegram": phone if phone else "—",
+                    "seller_name": seller_name,
+                    "seller_id": seller_id,
                     "debt_sum": debt_val,
                     "formatted_debt": f"{debt_val:,.0f} сўм".replace(",", " "),
                     "days": days_overdue,
@@ -182,6 +202,8 @@ async def get_debts_overview(
                         "name": name,
                         "company_title": name,
                         "phone": phone if phone else "—",
+                        "seller_name": seller_name,
+                        "seller_id": seller_id,
                         "debt_sum": debt_val,
                         "formatted_debt": debtor_obj["formatted_debt"],
                         "days": max(days_overdue, 61),
@@ -199,6 +221,8 @@ async def get_debts_overview(
                     "company_title": name,
                     "phone": phone if phone else "—",
                     "telegram": phone if phone else "—",
+                    "seller_name": seller_name,
+                    "seller_id": seller_id,
                     "debt_sum": credit_val,
                     "formatted_debt": f"{credit_val:,.0f} сўм".replace(",", " "),
                     "days": days_overdue,
@@ -550,3 +574,132 @@ async def act_download(counterparty_id: str, session: AsyncSession = Depends(get
     except Exception as e:
         logger.error("act_download_failed", error=str(e))
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/notify-seller", summary="Сотувчининг Telegram ботига қарздорлик бўйича расмий талабнома юбориш")
+async def notify_seller_debt(
+    req: NotifySellerDebtRequest,
+    session: AsyncSession = Depends(get_db)
+):
+    """
+    Сотувчининг Telegram ботига талабнома юбориш:
+    «⚠️ Ҳурматли {сотувчи_исми}! Сиз савдо қилган «{мижоз_номи}» контрагенти бўйича {қарз_миқдори} сўмлик қарз кечикмоқда ({кечиккан_кун} кун). Зудлик билан қарзни ёпиш чорасини кўринг! Қарз ёпилмагунча ойлик бонусингиз тўхтатилади.»
+    """
+    ms_client = MoySkladClient()
+    debt_sum = float(req.debt_amount or 0.0)
+    days = int(req.days_overdue or 0)
+    client_name = req.counterparty_name or "Контрагент"
+    seller_name = req.seller_name or "Сотувчи"
+
+    # If debt_sum or seller_name not fully provided, refresh from MoySklad
+    if debt_sum == 0.0 or not req.counterparty_name or not req.seller_name:
+        try:
+            reports = await ms_client.get_all_counterparty_reports()
+            details = await ms_client.get_counterparty_details_map()
+            demand_sellers = await ms_client.get_latest_demand_sellers()
+
+            for r in reports:
+                cp = r.get("counterparty", {})
+                cid = cp.get("id") or (cp.get("meta", {}).get("href", "").split("/")[-1].split("?")[0] if "meta" in cp else "")
+                if cid == req.counterparty_id:
+                    bal = float(r.get("balance", 0.0))
+                    if bal < 0:
+                        debt_sum = abs(bal) / 100.0
+                    client_name = cp.get("name") or client_name
+                    s_info = demand_sellers.get(cid) or {}
+                    seller_name = s_info.get("seller_name") or details.get(cid, {}).get("seller_name") or seller_name
+                    break
+        except Exception as e:
+            logger.warning("failed_to_refresh_debt_details_for_seller_claim", error=str(e))
+
+    # Match seller in authorized_employees
+    emp = None
+    stmt = select(AuthorizedEmployee).where(AuthorizedEmployee.is_active == 1)
+    res = await session.execute(stmt)
+    active_employees = res.scalars().all()
+
+    # 1. Match by moysklad_id
+    if req.seller_id:
+        for e in active_employees:
+            if e.moysklad_id == req.seller_id:
+                emp = e
+                break
+
+    # 2. Match by name (e.g., "Зоиров", "Рахманова", "Аббос", etc.)
+    if not emp and seller_name and seller_name != "Тайинланмаган":
+        clean_target = seller_name.lower().replace(".", "").replace(" ", "")
+        for e in active_employees:
+            clean_ename = (e.employee_name or "").lower().replace(".", "").replace(" ", "")
+            if clean_target in clean_ename or clean_ename in clean_target:
+                emp = e
+                break
+        if not emp:
+            target_parts = [p.lower() for p in seller_name.split() if len(p) > 2]
+            for e in active_employees:
+                ename_lower = (e.employee_name or "").lower()
+                if any(tp in ename_lower for tp in target_parts):
+                    emp = e
+                    break
+
+    formatted_debt = f"{int(round(debt_sum)):,}".replace(",", " ")
+    seller_display_name = emp.employee_name if emp else seller_name
+
+    # Exact requested message template
+    tg_message = (
+        f"⚠️ <b>Ҳурматли {seller_display_name}!</b>\n\n"
+        f"Сиз савдо қилган <b>«{client_name}»</b> контрагенти бўйича <b>{formatted_debt} сўмлик</b> қарз кечикмоқда ({days} кун).\n\n"
+        f"🛑 Зудлик билан қарзни ёпиш чорасини кўринг! <b>Қарз ёпилмагунча ойлик бонусингиз тўхтатилади.</b>"
+    )
+
+    sent = False
+    recipient_info = ""
+
+    if emp and emp.telegram_id:
+        sent = await telegram.send_message(str(emp.telegram_id), tg_message)
+        recipient_info = f"Сотувчининг шахсий ботига (ID: {emp.telegram_id})"
+    else:
+        # If seller not yet authorized in Telegram bot, forward to Admin with notice
+        admin_chat = getattr(settings, "admin_chat_id", None) or os.getenv("ADMIN_CHAT_ID") or "5950380558"
+        admin_forward = (
+            f"ℹ️ <b>[Сотувчи огоҳлантириши]</b>\n"
+            f"Сотувчи <b>{seller_display_name}</b> ботда рўйхатдан ўтмаган (Telegram ID йўқ).\n"
+            f"Илтимос, унга қуйидаги огоҳлантиришни етказинг:\n\n"
+            f"{tg_message}"
+        )
+        sent = await telegram.send_message(admin_chat, admin_forward)
+        recipient_info = f"Раҳбарият / Админга етказилди (сотувчи ботда ҳали рўйхатдан ўтмаган)"
+
+    # Audit event record
+    try:
+        audit = AuditEvent(
+            id=uuid4(),
+            event_type="SELLER_DEBT_CLAIM_SENT",
+            actor_id="admin",
+            payload={
+                "counterparty_id": req.counterparty_id,
+                "counterparty_name": client_name,
+                "seller_name": seller_display_name,
+                "seller_moysklad_id": req.seller_id,
+                "seller_telegram_id": emp.telegram_id if emp else None,
+                "debt_amount": debt_sum,
+                "days_overdue": days,
+                "sent_success": sent,
+                "recipient_info": recipient_info,
+                "timestamp": datetime.utcnow().isoformat()
+            }
+        )
+        session.add(audit)
+        await session.commit()
+    except Exception as ex:
+        logger.warning("failed_to_log_seller_debt_audit", error=str(ex))
+
+    return {
+        "status": "success",
+        "success": sent,
+        "seller_name": seller_display_name,
+        "counterparty_name": client_name,
+        "debt_amount": debt_sum,
+        "days_overdue": days,
+        "recipient": recipient_info,
+        "message": f"«{seller_display_name}» га қарздорлик талабномаси юборилди!" if sent else "Хабарнома юборишда хатолик"
+    }

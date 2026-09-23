@@ -4,7 +4,7 @@ import time
 import uuid
 from pathlib import Path
 import structlog
-from typing import Optional, List
+from typing import Optional, List, Any, Dict
 from datetime import datetime, timezone, timedelta
 from fastapi import APIRouter, HTTPException, Query, Form, File, UploadFile
 from pydantic import BaseModel, Field
@@ -72,19 +72,99 @@ class TaskOut(BaseModel):
     updated_at: Optional[str]
 
 
+# ── Helper: Ходим маълумотлари ва Telegram Chat ID олиш ─────────────
+
+async def get_employee_by_id_or_name(session, identifier: Any, name: Optional[str] = None) -> Optional[Dict[str, Any]]:
+    """
+    Ходимнинг ID, Telegram ID, Moysklad ID ёки исми бўйича
+    authorized_employees жадвалидан маълумотларини ва telegram_chat_id сини тортиб олиш.
+    """
+    if identifier is None and not name:
+        return None
+
+    stmt = select(AuthorizedEmployee).where(AuthorizedEmployee.is_active == 1)
+    res = await session.execute(stmt)
+    employees = res.scalars().all()
+
+    # 1. ID бўйича қидириш (int PK ёки telegram_id)
+    try:
+        if identifier is not None and str(identifier).strip().isdigit():
+            iid = int(str(identifier).strip())
+            for emp in employees:
+                if emp.id == iid or emp.telegram_id == iid:
+                    return {
+                        "id": emp.id,
+                        "name": emp.employee_name,
+                        "telegram_chat_id": emp.telegram_id,
+                        "phone": emp.phone_number,
+                    }
+    except Exception:
+        pass
+
+    # 2. MoySklad UUID бўйича қидириш
+    if identifier:
+        id_str = str(identifier).strip().lower()
+        for emp in employees:
+            if emp.moysklad_id and str(emp.moysklad_id).strip().lower() == id_str:
+                return {
+                    "id": emp.id,
+                    "name": emp.employee_name,
+                    "telegram_chat_id": emp.telegram_id,
+                    "phone": emp.phone_number,
+                }
+
+    # 3. Исм бўйича қидириш (name параметри ёки identifier агар матн бўлса)
+    search_name = (name or (str(identifier) if not str(identifier).isdigit() else "")).strip().lower()
+    if search_name:
+        for emp in employees:
+            if emp.employee_name.strip().lower() == search_name:
+                return {
+                    "id": emp.id,
+                    "name": emp.employee_name,
+                    "telegram_chat_id": emp.telegram_id,
+                    "phone": emp.phone_number,
+                }
+        # Қисман мослик (масалан: 'Latipov', 'Джумаева')
+        s_words = [w for w in search_name.replace(".", " ").split() if len(w) > 2]
+        for emp in employees:
+            emp_lower = emp.employee_name.lower()
+            if any(w in emp_lower for w in s_words):
+                return {
+                    "id": emp.id,
+                    "name": emp.employee_name,
+                    "telegram_chat_id": emp.telegram_id,
+                    "phone": emp.phone_number,
+                }
+
+    return None
+
+
+# ── Helper: Telegram Bot олиш ───────────────────────────────────
+
+def get_bot():
+    """Хабар юбориш учун тоза aiogram Bot инстансини қайтариш."""
+    from config import settings
+    from aiogram import Bot
+    return Bot(token=settings.telegram_bot_token)
+
+
 # ── Helper: Telegram хабар юбориш ───────────────────────────────
 
-async def _send_task_notification_to_employee(task: Task):
+async def _send_task_notification_to_employee(task: Task, assignee: Optional[Dict[str, Any]] = None, observer: Optional[Dict[str, Any]] = None):
     """Ижрочига Telegram орқали топшириқ (овозли ёки матнли) хабарини юбориш."""
-    if not task.assigned_telegram_id:
-        logger.warning("task_notify_skip_no_tg_id", task_id=task.id, employee=task.assigned_name)
+    chat_id = task.assigned_telegram_id or (assignee.get("telegram_chat_id") if assignee else None)
+    emp_name = (assignee.get("name") if assignee else task.assigned_name) or "Ходим"
+    obs_name = (observer.get("name") if observer else task.observer_name) or "Йўқ"
+
+    if not chat_id:
+        print(f"WARNING: Ходимда telegram_chat_id мавжуд эмас! ({emp_name})")
+        logger.warning("task_notify_skip_no_tg_id", task_id=task.id, employee=emp_name)
         return
 
     try:
-        from services.telegram_bot_service import create_bot_and_dispatcher
         from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, FSInputFile
 
-        bot, _ = create_bot_and_dispatcher()
+        bot = get_bot()
 
         deadline_str = "—"
         if task.deadline:
@@ -105,53 +185,65 @@ async def _send_task_notification_to_employee(task: Task):
             voice_disk_path = Path(__file__).resolve().parent.parent.parent / task.voice_url.lstrip("/")
             if voice_disk_path.exists():
                 caption = (
-                    f"🎙 <b>ЯНГИ ОВОЗЛИ ТОПШИРИҚ #{task.id}</b>\n\n"
+                    f"🎙 <b>СИЗГА ЯНГИ ОВОЗЛИ ТОПШИРИҚ БЕРИЛДИ! #{task.id}</b>\n\n"
                     f"📌 <b>Мавзу:</b> {task.title}\n"
                     f"📝 <b>Тафсилот:</b> {task.description or '—'}\n"
                     f"⏰ <b>Муддат:</b> {deadline_str}\n"
+                    f"👁 <b>Кузатувчи:</b> {obs_name}\n\n"
+                    f"<i>Илтимос, вазифани ўз вақтида бажаринг!</i>"
                 )
                 try:
                     await bot.send_voice(
-                        chat_id=task.assigned_telegram_id,
+                        chat_id=chat_id,
                         voice=FSInputFile(str(voice_disk_path)),
                         caption=caption,
                         reply_markup=keyboard,
                         parse_mode="HTML",
                     )
                     voice_sent = True
-                    logger.info("task_voice_notification_sent", task_id=task.id, chat_id=task.assigned_telegram_id)
+                    print(f"DEBUG: Овозли топшириқ {emp_name} га муваффақиятли кетди.")
+                    logger.info("task_voice_notification_sent", task_id=task.id, chat_id=chat_id)
                 except Exception as ve:
+                    print(f"ERROR: Овоз юборишда хатолик: {ve}")
                     logger.warning("send_voice_failed_fallback_to_text", error=str(ve))
 
         if not voice_sent:
-            text = (
-                f"📋 <b>ЯНГИ ТОПШИРИҚ #{task.id}</b>\n\n"
+            msg = (
+                f"📋 <b>СИЗГА ЯНГИ ТОПШИРИҚ БЕРИЛДИ!</b>\n\n"
                 f"📌 <b>Мавзу:</b> {task.title}\n"
                 f"📝 <b>Тафсилот:</b> {task.description or '—'}\n"
                 f"⏰ <b>Муддат:</b> {deadline_str}\n"
+                f"👁 <b>Кузатувчи:</b> {obs_name}\n\n"
+                f"<i>Илтимос, вазифани ўз вақтида бажаринг!</i>"
             )
             await bot.send_message(
-                chat_id=task.assigned_telegram_id,
-                text=text,
+                chat_id=chat_id,
+                text=msg,
                 reply_markup=keyboard,
                 parse_mode="HTML",
             )
-            logger.info("task_text_notification_sent", task_id=task.id, chat_id=task.assigned_telegram_id)
+            print(f"DEBUG: Топшириқ {emp_name} га муваффақиятли кетди.")
+            logger.info("task_text_notification_sent", task_id=task.id, chat_id=chat_id)
 
         await bot.session.close()
     except Exception as e:
+        print(f"ERROR: Ижрочига хабар юборишда хатолик: {e}")
         logger.error("task_notification_failed", task_id=task.id, error=str(e))
 
 
-async def _send_observer_notification(task: Task):
+async def _send_observer_notification(task: Task, assignee: Optional[Dict[str, Any]] = None, observer: Optional[Dict[str, Any]] = None):
     """Кузатувчига маълумот учун овозли ёки матнли хабар юбориш."""
-    if not task.observer_telegram_id:
+    chat_id = task.observer_telegram_id or (observer.get("telegram_chat_id") if observer else None)
+    obs_name = (observer.get("name") if observer else task.observer_name) or "Кузатувчи"
+    emp_name = (assignee.get("name") if assignee else task.assigned_name) or "Ходим"
+
+    if not chat_id:
+        print(f"WARNING: Кузатувчида telegram_chat_id мавжуд эмас! ({obs_name})")
         return
 
     try:
-        from services.telegram_bot_service import create_bot_and_dispatcher
         from aiogram.types import FSInputFile
-        bot, _ = create_bot_and_dispatcher()
+        bot = get_bot()
 
         deadline_str = "—"
         if task.deadline:
@@ -165,41 +257,45 @@ async def _send_observer_notification(task: Task):
             voice_disk_path = Path(__file__).resolve().parent.parent.parent / task.voice_url.lstrip("/")
             if voice_disk_path.exists():
                 caption = (
-                    f"👁 <b>НАЗОРАТ: Овозли топшириқ берилди</b>\n\n"
-                    f"📋 <b>Топшириқ:</b> #{task.id}\n"
-                    f"👤 <b>Ижрочи:</b> {task.assigned_name}\n"
+                    f"👁 <b>НАЗОРАТ: Янги овозли топшириқ яратилди</b>\n\n"
+                    f"👤 <b>Ижрочи:</b> {emp_name}\n"
                     f"📌 <b>Мавзу:</b> {task.title}\n"
                     f"⏰ <b>Муддат:</b> {deadline_str}\n"
+                    f"📝 <b>Тафсилот:</b> {task.description or '—'}"
                 )
                 try:
                     await bot.send_voice(
-                        chat_id=task.observer_telegram_id,
+                        chat_id=chat_id,
                         voice=FSInputFile(str(voice_disk_path)),
                         caption=caption,
                         parse_mode="HTML",
                     )
                     voice_sent = True
-                    logger.info("observer_voice_notification_sent", task_id=task.id, chat_id=task.observer_telegram_id)
+                    print(f"DEBUG: Кузатувчи {obs_name} га овозли хабар кетди.")
+                    logger.info("observer_voice_notification_sent", task_id=task.id, chat_id=chat_id)
                 except Exception as ve:
+                    print(f"ERROR: Кузатувчига овоз юборишда хатолик: {ve}")
                     logger.warning("observer_send_voice_failed", error=str(ve))
 
         if not voice_sent:
-            text = (
-                f"👁 <b>НАЗОРАТ: Ходимга топшириқ берилди</b>\n\n"
-                f"📋 <b>Топшириқ:</b> #{task.id}\n"
-                f"👤 <b>Ижрочи:</b> {task.assigned_name}\n"
+            obs_msg = (
+                f"👁 <b>НАЗОРАТ: Янги топшириқ яратилди</b>\n\n"
+                f"👤 <b>Ижрочи:</b> {emp_name}\n"
                 f"📌 <b>Мавзу:</b> {task.title}\n"
                 f"⏰ <b>Муддат:</b> {deadline_str}\n"
+                f"📝 <b>Тафсилот:</b> {task.description or '—'}"
             )
             await bot.send_message(
-                chat_id=task.observer_telegram_id,
-                text=text,
+                chat_id=chat_id,
+                text=obs_msg,
                 parse_mode="HTML",
             )
-            logger.info("observer_notification_sent", task_id=task.id, chat_id=task.observer_telegram_id)
+            print(f"DEBUG: Кузатувчи {obs_name} га хабар кетди.")
+            logger.info("observer_notification_sent", task_id=task.id, chat_id=chat_id)
 
         await bot.session.close()
     except Exception as e:
+        print(f"ERROR: Кузатувчига хабар юборишда хатолик: {e}")
         logger.error("observer_notification_failed", task_id=task.id, error=str(e))
 
 
@@ -209,10 +305,9 @@ async def _send_reminder_to_employee(task: Task, urgent: bool = False):
         return
 
     try:
-        from services.telegram_bot_service import create_bot_and_dispatcher
         from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
-        bot, _ = create_bot_and_dispatcher()
+        bot = get_bot()
 
         deadline_str = "—"
         if task.deadline:
@@ -292,18 +387,28 @@ async def list_tasks(
 async def create_task(data: TaskCreate):
     """Янги топшириқ яратиш ва Telegram орқали хабар юбориш."""
     async with AsyncSessionLocal() as session:
-        # Ижрочи ходимнинг telegram_id сини олиш
-        assigned_tg_id = None
-        observer_tg_id = None
+        # 1. Ходимларнинг telegram_chat_id сини топиш
+        assignee = await get_employee_by_id_or_name(session, data.assigned_to, data.assigned_name)
+        observer = await get_employee_by_id_or_name(session, data.observer_id, data.observer_name) if data.observer_id else None
 
-        emp = await session.get(AuthorizedEmployee, data.assigned_to)
-        if emp:
-            assigned_tg_id = emp.telegram_id
+        assigned_tg_id = assignee.get("telegram_chat_id") if assignee else None
+        observer_tg_id = observer.get("telegram_chat_id") if observer else None
+        assigned_name = assignee.get("name") if assignee else data.assigned_name
+        observer_name = observer.get("name") if observer else data.observer_name
+        assigned_to_id = assignee.get("id") if assignee else (int(data.assigned_to) if str(data.assigned_to).isdigit() else 0)
+        observer_to_id = observer.get("id") if observer else (int(data.observer_id) if data.observer_id and str(data.observer_id).isdigit() else None)
 
-        if data.observer_id:
-            obs = await session.get(AuthorizedEmployee, data.observer_id)
-            if obs:
-                observer_tg_id = obs.telegram_id
+        if not assigned_tg_id:
+            print(f"WARNING: Ходимда telegram_chat_id мавжуд эмас! (Ижрочи: {data.assigned_name}, ID: {data.assigned_to})")
+            logger.warning("assignee_no_telegram_id", employee=data.assigned_name, id=data.assigned_to)
+        else:
+            print(f"DEBUG: Ижрочи топилди: {assigned_name} (chat_id: {assigned_tg_id})")
+
+        if data.observer_id and not observer_tg_id:
+            print(f"WARNING: Кузатувчида telegram_chat_id мавжуд эмас! (Кузатувчи: {data.observer_name}, ID: {data.observer_id})")
+            logger.warning("observer_no_telegram_id", observer=data.observer_name, id=data.observer_id)
+        elif observer_tg_id:
+            print(f"DEBUG: Кузатувчи топилди: {observer_name} (chat_id: {observer_tg_id})")
 
         # Дедлайнни парсинг қилиш
         deadline_dt = None
@@ -316,11 +421,11 @@ async def create_task(data: TaskCreate):
         task = Task(
             title=data.title,
             description=data.description,
-            assigned_to=data.assigned_to,
-            assigned_name=data.assigned_name,
+            assigned_to=assigned_to_id,
+            assigned_name=assigned_name,
             assigned_telegram_id=assigned_tg_id,
-            observer_id=data.observer_id,
-            observer_name=data.observer_name,
+            observer_id=observer_to_id,
+            observer_name=observer_name,
             observer_telegram_id=observer_tg_id,
             deadline=deadline_dt,
             status="new",
@@ -332,11 +437,10 @@ async def create_task(data: TaskCreate):
 
         logger.info("task_created", task_id=task.id, assigned_to=task.assigned_name)
 
-        # Telegram хабарлар (фон)
-        import asyncio
-        asyncio.create_task(_send_task_notification_to_employee(task))
-        if task.observer_telegram_id:
-            asyncio.create_task(_send_observer_notification(task))
+        # Telegram хабарномаларни юбориш
+        await _send_task_notification_to_employee(task, assignee=assignee, observer=observer)
+        if observer_tg_id:
+            await _send_observer_notification(task, assignee=assignee, observer=observer)
 
         return _task_to_out(task)
 
@@ -345,9 +449,9 @@ async def create_task(data: TaskCreate):
 async def create_task_with_voice(
     title: str = Form(...),
     description: Optional[str] = Form(None),
-    assigned_to: int = Form(...),
+    assigned_to: Any = Form(...),
     assigned_name: str = Form(...),
-    observer_id: Optional[int] = Form(None),
+    observer_id: Optional[Any] = Form(None),
     observer_name: Optional[str] = Form(None),
     deadline: Optional[str] = Form(None),
     voice_file: Optional[UploadFile] = File(None),
@@ -357,7 +461,6 @@ async def create_task_with_voice(
 
     # Овозли файлни сақлаш
     if voice_file and voice_file.filename:
-        # Кенгайтмани аниқлаш
         ext = ".webm"
         fn_lower = voice_file.filename.lower()
         if fn_lower.endswith(".ogg") or (voice_file.content_type and "ogg" in voice_file.content_type):
@@ -382,18 +485,28 @@ async def create_task_with_voice(
         logger.info("voice_task_saved", filename=unique_name, size=len(content))
 
     async with AsyncSessionLocal() as session:
-        # Ижрочи ходимнинг telegram_id сини олиш
-        assigned_tg_id = None
-        observer_tg_id = None
+        # 1. Ходимларнинг telegram_chat_id сини топиш
+        assignee = await get_employee_by_id_or_name(session, assigned_to, assigned_name)
+        observer = await get_employee_by_id_or_name(session, observer_id, observer_name) if observer_id else None
 
-        emp = await session.get(AuthorizedEmployee, assigned_to)
-        if emp:
-            assigned_tg_id = emp.telegram_id
+        assigned_tg_id = assignee.get("telegram_chat_id") if assignee else None
+        observer_tg_id = observer.get("telegram_chat_id") if observer else None
+        final_assigned_name = assignee.get("name") if assignee else assigned_name
+        final_observer_name = observer.get("name") if observer else observer_name
+        assigned_to_id = assignee.get("id") if assignee else (int(assigned_to) if str(assigned_to).isdigit() else 0)
+        observer_to_id = observer.get("id") if observer else (int(observer_id) if observer_id and str(observer_id).isdigit() else None)
 
-        if observer_id:
-            obs = await session.get(AuthorizedEmployee, observer_id)
-            if obs:
-                observer_tg_id = obs.telegram_id
+        if not assigned_tg_id:
+            print(f"WARNING: Ходимда telegram_chat_id мавжуд эмас! (Ижрочи: {assigned_name}, ID: {assigned_to})")
+            logger.warning("assignee_no_telegram_id", employee=assigned_name, id=assigned_to)
+        else:
+            print(f"DEBUG: Ижрочи топилди: {final_assigned_name} (chat_id: {assigned_tg_id})")
+
+        if observer_id and not observer_tg_id:
+            print(f"WARNING: Кузатувчида telegram_chat_id мавжуд эмас! (Кузатувчи: {observer_name}, ID: {observer_id})")
+            logger.warning("observer_no_telegram_id", observer=observer_name, id=observer_id)
+        elif observer_tg_id:
+            print(f"DEBUG: Кузатувчи топилди: {final_observer_name} (chat_id: {observer_tg_id})")
 
         # Дедлайнни парсинг қилиш
         deadline_dt = None
@@ -406,11 +519,11 @@ async def create_task_with_voice(
         task = Task(
             title=title,
             description=description,
-            assigned_to=assigned_to,
-            assigned_name=assigned_name,
+            assigned_to=assigned_to_id,
+            assigned_name=final_assigned_name,
             assigned_telegram_id=assigned_tg_id,
-            observer_id=observer_id,
-            observer_name=observer_name,
+            observer_id=observer_to_id,
+            observer_name=final_observer_name,
             observer_telegram_id=observer_tg_id,
             deadline=deadline_dt,
             status="new",
@@ -422,11 +535,10 @@ async def create_task_with_voice(
 
         logger.info("task_created_with_voice", task_id=task.id, assigned_to=task.assigned_name, has_voice=bool(voice_url))
 
-        # Telegram орқали юбориш (фонда)
-        import asyncio
-        asyncio.create_task(_send_task_notification_to_employee(task))
-        if task.observer_telegram_id:
-            asyncio.create_task(_send_observer_notification(task))
+        # Telegram орқали юбориш
+        await _send_task_notification_to_employee(task, assignee=assignee, observer=observer)
+        if observer_tg_id:
+            await _send_observer_notification(task, assignee=assignee, observer=observer)
 
         return _task_to_out(task)
 

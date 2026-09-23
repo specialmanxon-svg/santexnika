@@ -77,6 +77,49 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             logger.warning("database_init_skipped", error=str(e), hint="Running in local mode without Docker DB")
 
+    # Ensure authorized employees with verified Telegram IDs exist in DB
+    try:
+        from core.database import AsyncSessionLocal
+        from models.hr import AuthorizedEmployee
+        from sqlalchemy import select
+        initial_employees = [
+            {"employee_name": "Latipov F. F.", "phone_number": "+998888700070", "telegram_id": 5950380558, "telegram_username": "Diyor_manager", "moysklad_id": "c58dd132-b1a3-11ed-0a80-0bcd0004341a", "role": "Ходим"},
+            {"employee_name": "Рахманова С.", "phone_number": "+998500520091", "telegram_id": 6489232626, "telegram_username": "Diyor_2004_hr", "moysklad_id": "934c5d44-f751-11f0-0a80-05450002d64d", "role": "Ходим"},
+            {"employee_name": "Каххоров Ф. К.", "phone_number": "+998900806050", "telegram_id": 528729628, "telegram_username": "Kakharov_6050", "moysklad_id": "37302cba-6304-11f0-0a80-18b4000da6b1", "role": "Ходим"},
+            {"employee_name": "Джумаева С. О.", "phone_number": "+998933830370", "telegram_id": 78997993, "telegram_username": "diyor_consult", "moysklad_id": "f21c37f7-df61-11ee-0a80-015a00389b7d", "role": "Ходим"},
+            {"employee_name": "Зоиров А. А.", "phone_number": "+998907104449", "telegram_id": 6554491054, "telegram_username": "Diyor_Menedjer", "moysklad_id": "45ed0736-887c-11f0-0a80-14c400024c43", "role": "Ходим"},
+            {"employee_name": "Фармонова Н.", "phone_number": "+998902989360", "telegram_id": 453818188, "telegram_username": "Nodira_Farmanova", "moysklad_id": "31c48cb8-b67f-11f1-0a80-1f360017b025", "role": "Ходим"},
+        ]
+        async with AsyncSessionLocal() as session:
+            for emp_data in initial_employees:
+                stmt = select(AuthorizedEmployee).where(
+                    (AuthorizedEmployee.telegram_id == emp_data["telegram_id"]) |
+                    (AuthorizedEmployee.employee_name == emp_data["employee_name"])
+                )
+                res = await session.execute(stmt)
+                existing = res.scalar_one_or_none()
+                if not existing:
+                    new_emp = AuthorizedEmployee(
+                        employee_name=emp_data["employee_name"],
+                        phone_number=emp_data["phone_number"],
+                        telegram_id=emp_data["telegram_id"],
+                        telegram_username=emp_data["telegram_username"],
+                        moysklad_id=emp_data["moysklad_id"],
+                        role=emp_data["role"],
+                        is_active=1,
+                    )
+                    session.add(new_emp)
+                else:
+                    if not existing.telegram_id:
+                        existing.telegram_id = emp_data["telegram_id"]
+                    if not existing.moysklad_id:
+                        existing.moysklad_id = emp_data["moysklad_id"]
+                    existing.is_active = 1
+            await session.commit()
+            logger.info("authorized_employees_seeded")
+    except Exception as se:
+        logger.warning("seed_authorized_employees_failed", error=str(se))
+
     # Start background demand monitor task
     monitor_task = asyncio.create_task(_demand_hard_lock_monitor())
 

@@ -11,6 +11,7 @@ logger = structlog.get_logger(__name__)
 
 _CP_CACHE = {"ts": 0.0, "rows": []}
 _CP_DETAILS_CACHE = {"ts": 0.0, "map": {}}
+_DEMAND_SELLER_CACHE = {"ts": 0.0, "map": {}}
 
 class MoySkladClient:
     """Async client for MoySklad JSON API 1.2 with support for Token and Basic Auth."""
@@ -523,35 +524,93 @@ class MoySkladClient:
             return False
 
     async def get_counterparty_details_map(self) -> dict[str, dict]:
-        """Fetches and caches basic details (phone, inn, tags) for all counterparties."""
+        """Fetches and caches basic details (phone, inn, tags, owner/seller) for all counterparties."""
         now = time.time()
         if now - _CP_DETAILS_CACHE["ts"] < 300.0 and _CP_DETAILS_CACHE["map"]:
             return _CP_DETAILS_CACHE["map"]
 
         details_map = {}
         try:
-            res1 = await self._request("GET", "/entity/counterparty", params={"limit": 1000, "offset": 0})
-            rows = list(res1.get("rows", []))
-            total_size = res1.get("meta", {}).get("size", len(rows))
-            if total_size > 1000:
-                res2 = await self._request("GET", "/entity/counterparty", params={"limit": 1000, "offset": 1000})
-                rows.extend(res2.get("rows", []))
+            # Pre-fetch employees to map owner_id to name (MoySklad does not expand nested fields when limit > 100)
+            emp_map = {}
+            emp_phone_map = {}
+            try:
+                emp_resp = await self._request("GET", "/entity/employee", params={"limit": 100})
+                for er in emp_resp.get("rows", []):
+                    eid = er.get("id") or (er.get("meta", {}).get("href", "").split("/")[-1] if "meta" in er else "")
+                    ename = er.get("name") or er.get("fullName") or er.get("shortFio") or ""
+                    if eid:
+                        emp_map[eid] = ename
+                        emp_phone_map[eid] = er.get("phone") or ""
+            except Exception as ee:
+                logger.warning("failed_to_fetch_employee_map", error=str(ee))
+
+            rows = []
+            offset = 0
+            while True:
+                res = await self._request("GET", "/entity/counterparty", params={"limit": 1000, "offset": offset})
+                page_rows = res.get("rows", [])
+                rows.extend(page_rows)
+                total_size = res.get("meta", {}).get("size", len(rows))
+                if len(rows) >= total_size or not page_rows:
+                    break
+                offset += len(page_rows)
 
             for cp in rows:
                 cid = cp.get("id")
                 if cid:
+                    owner = cp.get("owner") or {}
+                    owner_id = owner.get("id") or (owner.get("meta", {}).get("href", "").split("/")[-1].split("?")[0] if "meta" in owner else "")
+                    owner_name = owner.get("name") or owner.get("fullName") or emp_map.get(owner_id) or ""
+                    owner_phone = owner.get("phone") or emp_phone_map.get(owner_id) or ""
                     details_map[cid] = {
                         "phone": cp.get("phone") or "",
                         "inn": cp.get("inn") or "",
                         "tags": cp.get("tags") or [],
                         "description": cp.get("description") or "",
-                        "company_type": cp.get("companyType") or "legal"
+                        "company_type": cp.get("companyType") or "legal",
+                        "seller_name": owner_name,
+                        "seller_id": owner_id,
+                        "seller_phone": owner_phone
                     }
             _CP_DETAILS_CACHE["ts"] = now
             _CP_DETAILS_CACHE["map"] = details_map
         except Exception as e:
             logger.warning("failed_to_fetch_counterparty_details_map", error=str(e))
         return details_map
+
+    async def get_latest_demand_sellers(self) -> dict[str, dict]:
+        """
+        Fetches latest demands with expand=owner,agent to determine the salesperson
+        who made the most recent sale/shipment to each counterparty.
+        Returns: {agent_id: {"seller_name": ..., "seller_id": ..., "demand_name": ...}}
+        """
+        now = time.time()
+        if now - _DEMAND_SELLER_CACHE["ts"] < 120.0 and _DEMAND_SELLER_CACHE["map"]:
+            return _DEMAND_SELLER_CACHE["map"]
+
+        seller_map = {}
+        try:
+            res = await self._request("GET", "/entity/demand", params={"limit": 100, "order": "moment,desc", "expand": "owner,agent"})
+            for d in res.get("rows", []):
+                agent = d.get("agent") or {}
+                agent_id = agent.get("id") or (agent.get("meta", {}).get("href", "").split("/")[-1].split("?")[0] if "meta" in agent else "")
+                if agent_id and agent_id not in seller_map:
+                    owner = d.get("owner") or {}
+                    owner_name = owner.get("name") or owner.get("fullName") or ""
+                    owner_id = owner.get("id") or (owner.get("meta", {}).get("href", "").split("/")[-1].split("?")[0] if "meta" in owner else "")
+                    if owner_name:
+                        seller_map[agent_id] = {
+                            "seller_name": owner_name,
+                            "seller_id": owner_id,
+                            "demand_name": d.get("name", ""),
+                            "moment": d.get("moment", "")
+                        }
+            _DEMAND_SELLER_CACHE["ts"] = now
+            _DEMAND_SELLER_CACHE["map"] = seller_map
+        except Exception as e:
+            logger.warning("failed_to_fetch_latest_demand_sellers", error=str(e))
+        return seller_map
 
     async def get_all_counterparty_reports(self) -> list[dict]:
         """Fetches and caches all rows from /report/counterparty."""

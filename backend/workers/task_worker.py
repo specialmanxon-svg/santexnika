@@ -39,10 +39,11 @@ async def _check_and_remind():
 
             # Раҳбарга хабар
             try:
-                from services.telegram_bot_service import create_bot_and_dispatcher
+                from config import settings
+                from aiogram import Bot
                 import os
 
-                bot, _ = create_bot_and_dispatcher()
+                bot = Bot(token=settings.telegram_bot_token)
                 ceo_chat_id = os.getenv("TELEGRAM_CEO_CHAT_ID") or "5950380558"
 
                 deadline_str = "—"
@@ -85,10 +86,11 @@ async def _check_and_remind():
                 continue
 
             try:
-                from services.telegram_bot_service import create_bot_and_dispatcher
+                from config import settings
+                from aiogram import Bot
                 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
-                bot, _ = create_bot_and_dispatcher()
+                bot = Bot(token=settings.telegram_bot_token)
 
                 deadline_str = "—"
                 if task.deadline:

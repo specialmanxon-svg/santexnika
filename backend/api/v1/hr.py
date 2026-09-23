@@ -165,12 +165,31 @@ async def get_sales_kpi(
 
 
 @router.get("/employees", summary="Фаол ходимлар рўйхати")
-async def get_employees():
-    """МойСклад ва тизимдаги фаол ходимлар рўйхати (интерфейсда танлаш учун)."""
+async def get_employees(session: AsyncSession = Depends(get_db)):
+    """Тасдиқланган фаол ходимлар рўйхати (Telegram ID ва МойСклад билан боғланган)."""
     try:
+        from sqlalchemy import select
+        from models.hr import AuthorizedEmployee
+        stmt = select(AuthorizedEmployee).where(AuthorizedEmployee.is_active == 1).order_by(AuthorizedEmployee.id)
+        res = await session.execute(stmt)
+        emps = res.scalars().all()
+        if emps:
+            return [
+                {
+                    "id": e.id,
+                    "name": e.employee_name,
+                    "employee_name": e.employee_name,
+                    "telegram_id": e.telegram_id,
+                    "telegram_chat_id": e.telegram_id,
+                    "moysklad_id": e.moysklad_id,
+                    "role": e.role,
+                    "phone": e.phone_number
+                }
+                for e in emps
+            ]
         return await hr_service.get_employees()
     except Exception as e:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+        return await hr_service.get_employees()
 
 
 @router.get("/store-location", summary="Дўкон/Омбор GPS координаталари ва радиуси")

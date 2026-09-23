@@ -669,7 +669,49 @@ class HRService:
         except Exception as exc:
             logger.error("moysklad_kpi_fetch_error", error=str(exc))
 
-        # Calculate bonus
+        # Check overdue debtors (60+ days) per salesperson for KPI Bonus Freeze
+        seller_overdue_debtors: Dict[str, list] = {}
+        try:
+            reports = await self.ms_client.get_all_counterparty_reports()
+            details_map = await self.ms_client.get_counterparty_details_map()
+            demand_sellers = await self.ms_client.get_latest_demand_sellers()
+
+            now_dt = datetime.utcnow()
+            for r in reports:
+                bal = float(r.get("balance", 0.0))
+                if bal >= 0:
+                    continue
+                debt_val = abs(bal) / 100.0
+
+                last_demand_str = r.get("lastDemandDate") or r.get("updated")
+                days_overdue = 0
+                if last_demand_str:
+                    try:
+                        clean_str = str(last_demand_str)[:19].replace("T", " ")
+                        dt = datetime.strptime(clean_str, "%Y-%m-%d %H:%M:%S")
+                        days_overdue = max(0, (now_dt - dt).days)
+                    except Exception:
+                        pass
+
+                # If overdue > 60 days
+                if days_overdue > 60 and debt_val > 0:
+                    cp = r.get("counterparty", {})
+                    cid = cp.get("id") or (cp.get("meta", {}).get("href", "").split("/")[-1].split("?")[0] if "meta" in cp else "")
+                    cname = cp.get("name") or "Контрагент"
+                    s_entry = demand_sellers.get(cid) or {}
+                    s_name = s_entry.get("seller_name") or details_map.get(cid, {}).get("seller_name") or ""
+                    if s_name and s_name != "Тайинланмаган":
+                        if s_name not in seller_overdue_debtors:
+                            seller_overdue_debtors[s_name] = []
+                        seller_overdue_debtors[s_name].append({
+                            "client": cname,
+                            "debt": debt_val,
+                            "days": days_overdue
+                        })
+        except Exception as deb_err:
+            logger.warning("failed_to_check_seller_overdue_debtors", error=str(deb_err))
+
+        # Calculate bonus and check for KPI Bonus Freeze
         bonus_pct = settings.kpi_bonus_percent
         sorted_kpi = []
 
@@ -677,6 +719,24 @@ class HRService:
             tot_sales = data["total_sales"]
             deals = data["deals_count"]
             bonus = tot_sales * (bonus_pct / 100.0)
+
+            # Check if this seller has any overdue 60+ days debtors
+            blocked_debtors = []
+            clean_name = name.lower().replace(".", "").replace(" ", "")
+            for s_name, dlist in seller_overdue_debtors.items():
+                clean_s = s_name.lower().replace(".", "").replace(" ", "")
+                if clean_s in clean_name or clean_name in clean_s or any(p in clean_name for p in s_name.lower().split() if len(p) > 2):
+                    blocked_debtors.extend(dlist)
+
+            is_bonus_blocked = len(blocked_debtors) > 0
+            if is_bonus_blocked:
+                bonus_status = "⚠️ Қарздорлик туфайли музлатилди"
+                payable_bonus = 0.0
+                blocked_info = ", ".join([f"{d['client']} ({int(round(d['debt'])):,} сўм)".replace(",", " ") for d in blocked_debtors[:3]])
+            else:
+                bonus_status = "Фаол"
+                payable_bonus = bonus
+                blocked_info = ""
 
             sorted_kpi.append({
                 "salesperson": name,
@@ -686,10 +746,20 @@ class HRService:
                 "deals_count": deals,
                 "bonus": round(bonus, 2),
                 "formatted_bonus": format_money(bonus),
-                "bonus_rate": f"{bonus_pct}%"
+                "payable_bonus": round(payable_bonus, 2),
+                "formatted_payable_bonus": format_money(payable_bonus),
+                "bonus_rate": f"{bonus_pct}%",
+                "is_bonus_blocked": is_bonus_blocked,
+                "bonus_status": bonus_status,
+                "blocked_debtors": blocked_debtors,
+                "blocked_debtors_info": blocked_info
             })
 
         sorted_kpi.sort(key=lambda x: x["total_sales"], reverse=True)
+
+        total_calculated_bonus = sum(k["bonus"] for k in sorted_kpi)
+        total_payable_bonus = sum(k["payable_bonus"] for k in sorted_kpi)
+        frozen_bonus = total_calculated_bonus - total_payable_bonus
 
         res_data = {
             "period": period,
@@ -697,8 +767,12 @@ class HRService:
             "bonus_percent": bonus_pct,
             "total_sales": sum(k["total_sales"] for k in sorted_kpi),
             "formatted_total_sales": format_money(sum(k["total_sales"] for k in sorted_kpi)),
-            "total_bonus": sum(k["bonus"] for k in sorted_kpi),
-            "formatted_total_bonus": format_money(sum(k["bonus"] for k in sorted_kpi)),
+            "total_bonus": total_calculated_bonus,
+            "formatted_total_bonus": format_money(total_calculated_bonus),
+            "total_payable_bonus": total_payable_bonus,
+            "formatted_total_payable_bonus": format_money(total_payable_bonus),
+            "frozen_bonus": frozen_bonus,
+            "formatted_frozen_bonus": format_money(frozen_bonus),
             "kpi": sorted_kpi,
             "salespeople": sorted_kpi
         }
@@ -730,8 +804,14 @@ class HRService:
             "sales_kpi": kpi_data.get("kpi", []),
             "kpi_summary": {
                 "period_label": kpi_data.get("period_label"),
+                "total_sales": kpi_data.get("total_sales"),
                 "total_sales_formatted": kpi_data.get("formatted_total_sales"),
+                "total_bonus": kpi_data.get("total_bonus"),
                 "total_bonus_formatted": kpi_data.get("formatted_total_bonus"),
+                "total_payable_bonus": kpi_data.get("total_payable_bonus"),
+                "total_payable_bonus_formatted": kpi_data.get("formatted_total_payable_bonus"),
+                "frozen_bonus": kpi_data.get("frozen_bonus"),
+                "frozen_bonus_formatted": kpi_data.get("formatted_frozen_bonus"),
                 "bonus_percent": kpi_data.get("bonus_percent")
             },
             "store_location": store_info
