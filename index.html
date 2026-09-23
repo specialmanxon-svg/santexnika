@@ -1957,29 +1957,6 @@ async function toggleHardLock(id, action, name) {
     }
 }
 
-async function sendActTelegram(id, name) {
-    toast(`⏳ «${name}» учун Акт-сверка Telegram орқали юборилмоқда...`);
-    const res = await apiPost('/debts/send-act-telegram', {
-        counterparty_id: id
-    });
-    if (res && res.status === 'success') {
-        toast(`✅ ${res.message || 'Акт Telegram орқали юборилди!'}`);
-    } else {
-        toast('❌ Акт юборишда хатолик: ' + (res?.detail || 'Хатолик юз берди'), true);
-    }
-}
-
-async function sendAlertTelegram(id, name) {
-    toast(`⏳ «${name}» га тезкор огоҳлантириш юборилмоқда...`);
-    const res = await apiPost('/debts/send-alert-telegram', {
-        counterparty_id: id
-    });
-    if (res && res.status === 'success') {
-        toast(`⚡ ${res.message || 'Тезкор огоҳлантириш Telegram орқали юборилди!'}`);
-    } else {
-        toast('❌ Хатолик юз берди: ' + (res?.detail || 'Огоҳлантириш юборилмади'), true);
-    }
-}
 
 async function sendSellerDebtClaim(id, name, sellerName, debtAmount, days) {
     const sName = sellerName || 'Масъул сотувчи';
