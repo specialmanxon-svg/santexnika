@@ -278,13 +278,13 @@
 
         <!-- Low stock tables grouped by suppliers -->
         <div class="space-y-4 mb-8">
-            <div class="bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-200 rounded-xl px-5 py-4 flex flex-wrap items-center justify-between gap-3 shadow-sm">
+            <div class="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-xl px-5 py-4 flex flex-wrap items-center justify-between gap-3 shadow-sm">
                 <div>
-                    <h3 class="font-bold text-amber-900 text-base flex items-center gap-2">
+                    <h3 class="font-bold text-blue-900 text-base flex items-center gap-2">
                         <span>📦 Таъминотчилар бўйича бирлашган буюртма</span>
-                        <span class="badge bg-amber-200 text-amber-900 text-xs font-semibold px-2 py-0.5 rounded-full">30 кунлик сотув таҳлили</span>
+                        <span class="badge bg-blue-200 text-blue-900 text-xs font-semibold px-2 py-0.5 rounded-full">6 ойлик ABC/XYZ таҳлили</span>
                     </h3>
-                    <p class="text-xs text-amber-700 mt-1">Охирги 30 кунлик сотув тезлиги асосида тавсия этилган хавфсиз захира ва МойСклад учун ягона «Заказ поставщику»</p>
+                    <p class="text-xs text-blue-700 mt-1">Охирги 6 ойлик (180 кун) савдо тарихи, 9 та тоифа (AX, AY, AZ, BX, BY, BZ, CX, CY, CZ) буюртма асослари ва МойСклад учун ягона «Заказ поставщику»</p>
                 </div>
                 <div class="flex items-center gap-3">
                     <span id="supplier-orders-count-badge" class="badge badge-yellow font-bold text-xs py-1 px-3">Юкланмоқда...</span>
@@ -294,7 +294,7 @@
             <div id="lowstock-suppliers-container" class="space-y-6">
                 <div class="bg-white rounded-xl border border-gray-200 shadow-sm p-8 text-center text-gray-400">
                     <div class="inline-block w-6 h-6 border-2 border-blue-600 border-t-transparent rounded-full animate-spin mb-2"></div>
-                    <div>Таъминотчилар ва 30 кунлик сотув маълумотлари юкланмоқда...</div>
+                    <div>Таъминотчилар ва 6 ойлик ABC/XYZ сотув маълумотлари юкланмоқда...</div>
                 </div>
             </div>
         </div>
@@ -1760,6 +1760,24 @@ function escapeJs(str) {
     return String(str).replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '&quot;');
 }
 
+function getMatrixBadgeHtml(cat) {
+    const c = (cat || 'CZ').toUpperCase();
+    if (c === 'AX' || c === 'AY' || c === 'BX') {
+        return `<span class="badge bg-emerald-100 text-emerald-800 border border-emerald-300 font-black px-2.5 py-1 text-xs rounded-lg shadow-sm">${c}</span>`;
+    }
+    if (c === 'AZ' || c === 'CX') {
+        return `<span class="badge bg-blue-100 text-blue-800 border border-blue-300 font-black px-2.5 py-1 text-xs rounded-lg shadow-sm">${c}</span>`;
+    }
+    if (c === 'BY') {
+        return `<span class="badge bg-amber-100 text-amber-800 border border-amber-300 font-black px-2.5 py-1 text-xs rounded-lg shadow-sm">${c}</span>`;
+    }
+    if (c === 'BZ' || c === 'CY') {
+        return `<span class="badge bg-orange-100 text-orange-800 border border-orange-300 font-black px-2.5 py-1 text-xs rounded-lg shadow-sm">${c}</span>`;
+    }
+    // CZ: Ноликвид / сотилмайдиган
+    return `<span class="badge bg-rose-100 text-rose-800 border border-rose-300 font-black px-2.5 py-1 text-xs rounded-lg shadow-sm inline-flex items-center gap-1"><span>${c}</span> <span>🚫 Тақиқланган</span></span>`;
+}
+
 function renderLowStockSuppliers() {
     const container = document.getElementById('lowstock-suppliers-container');
     const countBadge = document.getElementById('supplier-orders-count-badge');
@@ -1795,13 +1813,16 @@ function renderLowStockSuppliers() {
         });
 
         if (matchingItems.length > 0) {
-            const totRecQty = matchingItems.reduce((acc, it) => acc + (it.recommended_qty || 1), 0);
-            const totSum = matchingItems.reduce((acc, it) => acc + ((it.recommended_qty || 1) * (it.buy_price || 0)), 0);
+            // CZ тоифасидаги маҳсулотлар тавсия миқдори ва суммасига қўшилмайди (0 дона)
+            const activeItems = matchingItems.filter(it => (it.matrix_category || '').toUpperCase() !== 'CZ');
+            const totRecQty = activeItems.reduce((acc, it) => acc + (it.recommended_qty || 0), 0);
+            const totSum = activeItems.reduce((acc, it) => acc + ((it.recommended_qty || 0) * (it.buy_price || 0)), 0);
 
             filteredSuppliers.push({
                 ...sup,
                 items: matchingItems,
                 display_items_count: matchingItems.length,
+                display_active_count: activeItems.length,
                 display_recommended_qty: totRecQty,
                 display_estimated_sum: totSum
             });
@@ -1830,55 +1851,74 @@ function renderLowStockSuppliers() {
 
         const rowsHtml = sup.items.map((it, idx) => {
             const pId = it.product_id || it.id || it.sku;
-            const pNameEscaped = (it.name || '').replace(/['"\\]/g, ' ');
-            const recQty = it.recommended_qty || 1;
+            const matCat = (it.matrix_category || 'CZ').toUpperCase();
+            const isCz = (matCat === 'CZ');
+            const recQty = isCz ? 0 : (it.recommended_qty || 1);
             const buyPrice = it.buy_price || 0;
             const subtotal = recQty * buyPrice;
             const stockQty = it.current_stock || 0;
-            const sales30d = it.sales_30d || 0;
+            const sales180d = it.sales_180d || 0;
             const dailySales = it.daily_sales || 0;
 
             return `
-            <tr class="hover:bg-gray-50 transition-colors" id="row-item-${sId}-${pId}">
-                <td class="py-2.5 px-3 text-center text-gray-400 text-xs">${idx + 1}</td>
-                <td class="py-2.5 px-4 font-medium text-gray-900">
+            <tr class="hover:bg-gray-50/80 transition-colors ${isCz ? 'bg-rose-50/20' : ''}" id="row-item-${sId}-${pId}">
+                <td class="py-3 px-3 text-center text-gray-400 text-xs font-mono">${idx + 1}</td>
+                <td class="py-3 px-4 font-medium text-gray-900 max-w-xs">
                     <div class="flex items-center gap-1.5 flex-wrap">
-                        <span>${it.name || '—'}</span>
-                        ${it.brand ? `<span class="badge bg-purple-100 text-purple-700 font-bold">${it.brand}</span>` : ''}
+                        <span class="font-semibold text-gray-900 leading-snug">${it.name || '—'}</span>
+                        ${it.brand ? `<span class="badge bg-purple-100 text-purple-700 font-bold text-xs">${it.brand}</span>` : ''}
                     </div>
                     <div class="text-xs text-gray-400 font-mono mt-0.5">SKU: ${it.sku || '—'}</div>
                 </td>
-                <td class="py-2.5 px-3">
-                    <span class="badge badge-blue">${it.category || it.path_name || 'Сантехника'}</span>
-                </td>
-                <td class="py-2.5 px-3 text-center num">
+                <td class="py-3 px-3 text-center num">
                     <span class="badge ${stockQty <= 2 ? 'badge-red' : 'badge-yellow'} font-bold">${fmt(stockQty)} дона</span>
                 </td>
-                <td class="py-2.5 px-3 text-center num">
-                    <div class="font-bold text-gray-800">${fmt(sales30d)} дона</div>
-                    <div class="text-xs text-gray-400 font-mono">кунига ~${dailySales}</div>
+                <td class="py-3 px-3 text-center num">
+                    <div class="font-bold text-gray-800">${fmt(sales180d)} дона</div>
+                    <div class="text-xs text-gray-400 font-mono mt-0.5">кунига ~${dailySales} дона</div>
                 </td>
-                <td class="py-2.5 px-4 text-center bg-blue-50/50 border-x border-blue-100">
-                    <div class="inline-flex items-center justify-center gap-1">
-                        <input type="number" min="0" step="1" 
-                            id="qty-input-${sId}-${pId}"
-                            value="${recQty}" 
-                            data-sup="${sId}"
-                            data-pid="${pId}"
-                            data-price="${buyPrice}"
-                            data-name="${escapeJs(it.name)}"
-                            class="sup-qty-input sup-qty-input-${sId} w-20 py-1 px-2 border-2 border-blue-300 rounded-lg text-center font-bold text-blue-900 bg-white shadow-inner focus:outline-none focus:border-blue-600 transition-all text-sm"
-                            oninput="onSupplierQtyChange('${sId}', '${pId}')"
-                            ${isOrdered ? 'disabled' : ''}
-                        />
-                        <span class="text-xs text-gray-500 font-semibold">дона</span>
-                    </div>
+                <td class="py-3 px-3 text-center">
+                    ${getMatrixBadgeHtml(matCat)}
                 </td>
-                <td class="py-2.5 px-3 text-right num text-gray-700 font-medium">
-                    ${fmt(buyPrice)} сўм
+                <td class="py-3 px-4 text-center ${isCz ? 'bg-gray-50 border-x border-gray-200' : 'bg-blue-50/50 border-x border-blue-100'}">
+                    ${isCz ? `
+                        <div class="inline-flex items-center justify-center gap-1">
+                            <input type="number" value="0" disabled
+                                class="w-20 py-1 px-2 border border-gray-300 rounded-lg text-center font-bold text-gray-400 bg-gray-100 shadow-inner text-sm cursor-not-allowed" />
+                            <span class="text-xs text-gray-400 font-semibold">дона</span>
+                        </div>
+                        <div class="text-[11px] text-rose-600 font-bold mt-1">🚫 Буюртма қилинмайди</div>
+                    ` : `
+                        <div class="inline-flex items-center justify-center gap-1">
+                            <input type="number" min="1" step="1" 
+                                id="qty-input-${sId}-${pId}"
+                                value="${recQty}" 
+                                data-sup="${sId}"
+                                data-pid="${pId}"
+                                data-price="${buyPrice}"
+                                data-name="${escapeJs(it.name)}"
+                                data-cat="${matCat}"
+                                class="sup-qty-input sup-qty-input-${sId} w-20 py-1 px-2 border-2 border-blue-400 rounded-lg text-center font-bold text-blue-900 bg-white shadow-inner focus:outline-none focus:border-blue-600 transition-all text-sm"
+                                oninput="onSupplierQtyChange('${sId}', '${pId}')"
+                                ${isOrdered ? 'disabled' : ''}
+                            />
+                            <span class="text-xs text-gray-500 font-semibold">дона</span>
+                        </div>
+                        <div class="text-[11px] text-gray-500 font-medium mt-1">
+                            <span id="subtotal-${sId}-${pId}">${fmt(subtotal)}</span> сўм
+                        </div>
+                    `}
                 </td>
-                <td class="py-2.5 px-4 text-right num font-bold text-gray-900">
-                    <span id="subtotal-${sId}-${pId}">${fmt(subtotal)}</span> сўм
+                <td class="py-3 px-4 text-xs leading-relaxed max-w-sm">
+                    ${isCz ? `
+                        <div class="p-2 bg-rose-50 border border-rose-200 rounded-lg text-rose-800 font-semibold shadow-xs">
+                            ${it.rationale || 'Ноликвид товар. Буюртма тақиқланади.'}
+                        </div>
+                    ` : `
+                        <div class="text-gray-700 font-medium">
+                            ${it.rationale || '—'}
+                        </div>
+                    `}
                 </td>
             </tr>
             `;
@@ -1913,21 +1953,18 @@ function renderLowStockSuppliers() {
                 </div>
             </div>
 
-            <!-- Table -->
+            <!-- Table: 7 Columns -->
             <div class="overflow-x-auto">
                 <table class="w-full text-left text-sm">
                     <thead class="bg-gray-50 text-gray-700 text-xs font-semibold uppercase tracking-wider border-b border-gray-200">
                         <tr>
                             <th class="py-2.5 px-3 w-10 text-center">#</th>
                             <th class="py-2.5 px-4">Товар номи ва SKU</th>
-                            <th class="py-2.5 px-3">Гуруҳ</th>
                             <th class="py-2.5 px-3 text-center">Қолдиқ</th>
-                            <th class="py-2.5 px-3 text-center">30 кунлик сотув</th>
-                            <th class="py-2.5 px-4 text-center bg-blue-50 text-blue-900 border-x border-blue-100">
-                                💡 Тавсия этилган буюртма
-                            </th>
-                            <th class="py-2.5 px-3 text-right">Харид нархи</th>
-                            <th class="py-2.5 px-4 text-right">Жами қиймат</th>
+                            <th class="py-2.5 px-3 text-center">6 ойлик сотув</th>
+                            <th class="py-2.5 px-3 text-center">ABC/XYZ тоифаси</th>
+                            <th class="py-2.5 px-4 text-center bg-blue-50 text-blue-900 border-x border-blue-100">Тавсия миқдори</th>
+                            <th class="py-2.5 px-4">Буюртма асоси</th>
                         </tr>
                     </thead>
                     <tbody class="divide-y divide-gray-100">
@@ -1940,7 +1977,7 @@ function renderLowStockSuppliers() {
             <div class="bg-gray-50/90 px-5 py-3 border-t border-gray-200 flex flex-wrap items-center justify-between gap-3">
                 <div class="text-xs text-gray-500 flex items-center gap-1.5">
                     <span>💡</span>
-                    <span><i>Керак бўлса миқдорларни ўзгартиринг. Барча қаторлар ягона МойСклад «Заказ поставщику» ҳужжатига жамланади.</i></span>
+                    <span><i>Керак бўлса миқдорларни ўзгартиринг. CZ (ноликвид) товарлар чиқариб ташланиб, ягона МойСклад «Заказ поставщику» ҳужжатига жамланади.</i></span>
                 </div>
 
                 ${isOrdered ? `
@@ -1953,7 +1990,7 @@ function renderLowStockSuppliers() {
                         class="btn btn-primary font-bold text-sm py-2.5 px-5 shadow-sm hover:opacity-95 transition-all flex items-center gap-2">
                         <span>🛒 ${sup.supplier_name} бўйича МойСклад'да ягона буюртма яратиш</span>
                         <span id="btn-badge-${sId}" class="badge bg-white text-blue-900 font-extrabold text-xs ml-1 py-0.5 px-2.5 rounded-full">
-                            ${sup.display_items_count} та товар • ${fmt(sup.display_estimated_sum)} сўм
+                            ${sup.display_active_count || sup.display_items_count} та товар • ${fmt(sup.display_estimated_sum)} сўм
                         </span>
                     </button>
                 `}
@@ -1981,6 +2018,10 @@ function onSupplierQtyChange(supplierId, productId) {
     let validItemsCount = 0;
 
     allInputs.forEach(inp => {
+        if (inp.disabled) return;
+        const cat = (inp.dataset.cat || '').toUpperCase();
+        if (cat === 'CZ') return;
+
         const q = Math.max(0, parseFloat(inp.value) || 0);
         const p = parseFloat(inp.dataset.price) || 0;
         if (q > 0) {
@@ -2005,19 +2046,24 @@ async function submitBulkSupplierOrder(supplierId, supplierName) {
     const items = [];
 
     allInputs.forEach(inp => {
+        if (inp.disabled) return;
+        const cat = (inp.dataset.cat || '').toUpperCase();
+        if (cat === 'CZ') return; // CZ товарлари қатъиян буюртмага қўшилмайди
+
         const q = parseFloat(inp.value) || 0;
         if (q > 0) {
             items.push({
                 product_id: inp.dataset.pid,
                 quantity: q,
                 buy_price: parseFloat(inp.dataset.price) || 0,
-                name: inp.dataset.name || ''
+                name: inp.dataset.name || '',
+                matrix_category: cat
             });
         }
     });
 
     if (!items.length) {
-        toast('⚠️ Камида битта товар миқдори 0 дан катта бўлиши керак!', true);
+        toast('⚠️ Камида битта буюртма бериш мумкин бўлган (CZ бўлмаган) товар миқдори 0 дан катта бўлиши керак!', true);
         return;
     }
 
@@ -2034,7 +2080,7 @@ async function submitBulkSupplierOrder(supplierId, supplierName) {
             supplier_id: supplierId,
             supplier_name: supplierName,
             items: items,
-            notes: 'Diyor Group Dashboard орқали 30 кунлик сотув тарихи асосида шакллантирилди'
+            notes: 'Diyor Group Dashboard орқали 6 ойлик ABC/XYZ таҳлили асосида шакллантирилди'
         });
 
         if (res && res.status === 'success') {
@@ -2042,7 +2088,8 @@ async function submitBulkSupplierOrder(supplierId, supplierName) {
             orderedSuppliersSet.add(supplierId);
             orderedSuppliersMap[supplierId] = orderName;
 
-            toast(`✅ МойСклад'да «Заказ поставщику №${orderName}» муваффақиятли яратилди! Telegram'га хабарнома юборилди.`);
+            const czSkipped = res.skipped_cz_count ? ` (${res.skipped_cz_count} та CZ товар чиқариб ташланди)` : '';
+            toast(`✅ МойСклад'да «Заказ поставщику №${orderName}» муваффақиятли яратилди!${czSkipped} Telegram'га хабарнома юборилди.`);
 
             // Таъминотчи блокини муваффақият ҳолатига ўтказиш
             renderLowStockSuppliers();
@@ -2059,7 +2106,6 @@ async function submitBulkSupplierOrder(supplierId, supplierName) {
         if (btn) {
             btn.disabled = false;
             btn.innerHTML = originalHtml;
-        }
     }
 }
 

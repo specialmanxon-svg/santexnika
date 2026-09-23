@@ -1,5 +1,7 @@
 """Warehouse & Inventory Audit API router (Diyor Group)."""
 import time
+import math
+import asyncio
 from typing import Optional, List, Dict, Any
 from datetime import datetime, timedelta
 
@@ -21,6 +23,7 @@ inventory_agent = InventoryAgent()
 
 _brands_cache = {"ts": 0.0, "data": []}
 _SALES_30D_CACHE = {"ts": 0.0, "data": {}}
+_SALES_180D_CACHE = {"ts": 0.0, "data": {}}
 
 # Расмий МойСклад таъминотчилари (Контрагентлар) базаси билан боғлаш
 KNOWN_SUPPLIERS = {
@@ -102,33 +105,144 @@ def resolve_supplier_for_item(item: dict) -> dict:
     return KNOWN_SUPPLIERS["DEFAULT"]
 
 
-async def fetch_30d_product_sales(ms_client: MoySkladClient, force_refresh: bool = False) -> Dict[str, float]:
-    """МойСклад API'дан охирги 30 кунлик сотилган соф маҳсулотлар миқдорини олиш."""
+async def fetch_180d_product_sales_matrix(ms_client: MoySkladClient, force_refresh: bool = False) -> Dict[str, Dict[str, Any]]:
+    """
+    МойСклад API орқали охирги 180 кунлик (6 ойлик) сотув ҳужжатлари тарихини олиш ва
+    ABC (80% / 15% / 5%) ҳамда XYZ (v < 10% / 10-25% / > 25%) тоифаларини ҳисоблаш.
+    """
     now_ts = time.time()
-    if not force_refresh and (now_ts - _SALES_30D_CACHE["ts"] < 300.0) and _SALES_30D_CACHE["data"]:
-        return _SALES_30D_CACHE["data"]
+    if not force_refresh and (now_ts - _SALES_180D_CACHE["ts"] < 600.0) and _SALES_180D_CACHE["data"]:
+        return _SALES_180D_CACHE["data"]
 
-    sales_map: Dict[str, float] = {}
-    try:
-        date_from = (datetime.now() - timedelta(days=30)).strftime("%Y-%m-%d 00:00:00")
-        profit_data = await ms_client.get("/report/profit/byproduct", params={"momentFrom": date_from, "limit": 1000})
-        for r in profit_data.get("rows", []):
-            assort = r.get("assortment", {})
-            m_meta = assort.get("meta", {})
-            href = m_meta.get("href", "")
-            if href:
+    now = datetime.now()
+    intervals = []
+    for i in range(6):
+        d_end = now - timedelta(days=i * 30)
+        d_start = now - timedelta(days=(i + 1) * 30)
+        intervals.append((d_start.strftime("%Y-%m-%d 00:00:00"), d_end.strftime("%Y-%m-%d 23:59:59")))
+    intervals.reverse()
+
+    tasks = [
+        ms_client.get("/report/profit/byproduct", params={"momentFrom": s, "momentTo": e, "limit": 1000})
+        for s, e in intervals
+    ]
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+
+    product_stats: Dict[str, Dict[str, Any]] = {}
+
+    for m_idx, res in enumerate(results):
+        if isinstance(res, dict):
+            for r in res.get("rows", []):
+                href = r.get("assortment", {}).get("meta", {}).get("href", "")
+                if not href:
+                    continue
                 pid = href.split("/")[-1].split("?")[0]
-                sell_q = float(r.get("sellQuantity", 0.0))
-                ret_q = float(r.get("returnQuantity", 0.0))
-                net_qty = max(0.0, sell_q - ret_q)
-                sales_map[pid] = net_qty
-    except Exception as e:
-        logger.warning("failed_to_fetch_30d_sales", error=str(e))
+                if pid not in product_stats:
+                    product_stats[pid] = {
+                        "name": r.get("assortment", {}).get("name", ""),
+                        "monthly_qty": [0.0] * 6,
+                        "revenue": 0.0,
+                        "total_qty": 0.0
+                    }
+                q = max(0.0, float(r.get("sellQuantity", 0.0)) - float(r.get("returnQuantity", 0.0)))
+                rev = max(0.0, float(r.get("sellSum", 0.0) - r.get("returnSum", 0.0)) / 100.0)
+                product_stats[pid]["monthly_qty"][m_idx] = q
+                product_stats[pid]["total_qty"] += q
+                product_stats[pid]["revenue"] += rev
 
-    if sales_map:
-        _SALES_30D_CACHE["ts"] = now_ts
-        _SALES_30D_CACHE["data"] = sales_map
-    return sales_map or _SALES_30D_CACHE.get("data", {})
+    # 1. ABC Ҳисоблаш (Даромад улуши: A=80%, B=15%, C=5%)
+    sorted_prods = sorted(product_stats.items(), key=lambda x: x[1]["revenue"], reverse=True)
+    total_revenue = sum(p["revenue"] for _, p in sorted_prods) or 1.0
+
+    matrix_result: Dict[str, Dict[str, Any]] = {}
+    cum_rev = 0.0
+
+    for pid, p in sorted_prods:
+        cum_rev += p["revenue"]
+        share = cum_rev / total_revenue
+        if share <= 0.80:
+            abc = "A"
+        elif share <= 0.95:
+            abc = "B"
+        else:
+            abc = "C"
+
+        # 2. XYZ Ҳисоблаш (Вариация коэффициенти v = std / mean)
+        q_list = p["monthly_qty"]
+        mean_q = sum(q_list) / 6.0
+        tot_q = p["total_qty"]
+
+        if mean_q <= 0:
+            xyz = "Z"
+            v = 1.0
+        else:
+            var = sum((x - mean_q) ** 2 for x in q_list) / 6.0
+            std_dev = math.sqrt(var)
+            v = std_dev / mean_q
+            if v < 0.10:
+                xyz = "X"
+            elif v <= 0.25:
+                xyz = "Y"
+            else:
+                xyz = "Z"
+
+        matrix_cat = f"{abc}{xyz}"
+        v_pct = round(v * 100, 1)
+
+        # 3. Барча 9 та тоифа бўйича буюртма қоидалари ва ранглари
+        if matrix_cat == "AX":
+            rationale = "Юқори фойдали ва жуда барқарор товар. 30 кунлик захира кафолатланиши шарт (катта буюртма)."
+            order_allowed = True
+            badge_color = "green"
+        elif matrix_cat == "AY":
+            rationale = "Юқори фойдали, талаби ўзгариб турадиган товар. Мавсумни ҳисобга олган ҳолда 30 кунлик захира."
+            order_allowed = True
+            badge_color = "green"
+        elif matrix_cat == "AZ":
+            rationale = "Юқори фойдали, лекин сотуви нотекис товар. Фақат факт бўйича (аниқ эҳтиёжга кўра) ёки кичик партия."
+            order_allowed = True
+            badge_color = "blue"
+        elif matrix_cat == "BX":
+            rationale = "Ўртача фойдали, талаби барқарор. Меъёрий 30 кунлик хавфсиз захира тавсия этилади."
+            order_allowed = True
+            badge_color = "green"
+        elif matrix_cat == "BY":
+            rationale = "Ўртача фойдали, сотуви тебраниб туради. Ўртача хавфсиз захира буюртмаси."
+            order_allowed = True
+            badge_color = "yellow"
+        elif matrix_cat == "BZ":
+            rationale = "Ўртача фойдали, лекин тасодифий сотилади. Минимал партия билан буюртма қилиш тавсия этилади."
+            order_allowed = True
+            badge_color = "orange"
+        elif matrix_cat == "CX":
+            rationale = "Фойдаси кам, лекин мунтазам олинадиган майда товар (ассортимент учун). Меъёрида буюртма бериш."
+            order_allowed = True
+            badge_color = "blue"
+        elif matrix_cat == "CY":
+            rationale = "Фойдаси кам, сотуви беқарор. Фақат муҳим бўлса кичик миқдорда буюртма бериш."
+            order_allowed = True
+            badge_color = "orange"
+        else:  # CZ
+            rationale = "Ноликвид ёки умуман сотилмайдиган товар! Пул музламаслиги учун буюртма бериш ТАҚИҚЛАНАДИ (0 дона)."
+            order_allowed = False
+            badge_color = "red"
+
+        matrix_result[pid] = {
+            "sales_180d": tot_q,
+            "revenue_180d": p["revenue"],
+            "monthly_qty": q_list,
+            "abc": abc,
+            "xyz": xyz,
+            "matrix_category": matrix_cat,
+            "variation_pct": v_pct,
+            "rationale": rationale,
+            "order_allowed": order_allowed,
+            "badge_color": badge_color
+        }
+
+    _SALES_180D_CACHE["ts"] = now_ts
+    _SALES_180D_CACHE["data"] = matrix_result
+    return matrix_result
 
 
 @router.get("/brands")
@@ -231,17 +345,18 @@ async def get_low_stock(threshold: int = Query(5, description="Минимал қ
         raise HTTPException(status_code=500, detail=str(e))
 
 
-# ═══════════════ ТАЪМИНОТЧИЛАР БЎЙИЧА 30 КУНЛИК СОТУВ ВА ТАВСИЯ ═══════════════
+# ═══════════════ ТАЪМИНОТЧИЛАР БЎЙИЧА 6 ОЙЛИК (180 КУНЛИК) ABC/XYZ ТАҲЛИЛИ ═══════════════
 
-@router.get("/low-stock-by-suppliers", summary="Захираси тугаётган товарларни таъминотчилар бўйича гуруҳлаш ва 30 кунлик тавсия")
+@router.get("/low-stock-by-suppliers", summary="Захираси тугаётган товарларни таъминотчилар бўйича гуруҳлаш ва 6 ойлик ABC/XYZ таҳлили")
 async def get_low_stock_by_suppliers(
     threshold: int = Query(5, description="Минимал қолдиқ чегараси"),
     force_refresh: bool = Query(False, description="Маълумотларни янгилаб олиш")
 ):
     """
-    1. МойСклад API'дан охирги 30 кунлик савдо маълумотларини олиб, ҳар бир товарнинг кунлик ўртача сотув тезлигини ҳисоблайди.
-    2. 30 кунлик хавфсиз захира учун тавсия миқдорини аниқлайди:
-       recommended_qty = max(round((daily_sales * 30) - current_stock), 1)
+    1. МойСклад API орқали охирги 180 кунлик (6 ойлик) сотувлар тарихини олиб,
+       ABC (80%/15%/5%) ва XYZ (v < 10% / 10-25% / > 25%) бўйича 9 тоифага ажратади.
+    2. Ҳар бир тоифа (AX, AY, AZ, BX, BY, BZ, CX, CY, CZ) бўйича буюртма асослари ва
+       тавсия этилган миқдорни шакллантиради (CZ товарлари блокланади).
     3. Товарларни ўз таъминотчилари бўйича гуруҳлаб қайтаради.
     """
     ms_client = MoySkladClient()
@@ -251,20 +366,41 @@ async def get_low_stock_by_suppliers(
             all_low_stock = result.get("low_stock_items", [])
             filtered = [it for it in all_low_stock if it.get("stock_qty", 0) <= threshold]
 
-        sales_map = await fetch_30d_product_sales(ms_client, force_refresh=force_refresh)
+        matrix_map = await fetch_180d_product_sales_matrix(ms_client, force_refresh=force_refresh)
 
         suppliers_map: Dict[str, Dict[str, Any]] = {}
 
         for it in filtered:
             pid = it.get("id") or it.get("product_id") or it.get("sku") or ""
-            sold_30d = float(sales_map.get(pid, 0.0))
-            daily_sales = round(sold_30d / 30.0, 2)
             current_stock = float(it.get("stock_qty", 0.0))
-
-            # Талаб этилган формула: recommended_qty = max(round((daily_sales * 30) - current_stock), 1)
-            rec_qty = max(int(round((daily_sales * 30.0) - current_stock)), 1)
             buy_price = float(it.get("buy_price", 0.0))
             retail_price = float(it.get("retail_price", 0.0))
+
+            # ABC/XYZ Матрица маълумотлари (6 ой давомида сотилмаган бўлса автоматик CZ)
+            mat_info = matrix_map.get(pid, {
+                "sales_180d": 0.0,
+                "revenue_180d": 0.0,
+                "monthly_qty": [0.0] * 6,
+                "abc": "C",
+                "xyz": "Z",
+                "matrix_category": "CZ",
+                "variation_pct": 0.0,
+                "rationale": "Ноликвид ёки умуман сотилмайдиган товар! Пул музламаслиги учун буюртма бериш ТАҚИҚЛАНАДИ (0 дона).",
+                "order_allowed": False,
+                "badge_color": "red"
+            })
+
+            sales_180d = float(mat_info["sales_180d"])
+            daily_sales = round(sales_180d / 180.0, 2)
+            mat_cat = mat_info["matrix_category"]
+
+            # Тавсия этилган буюртма миқдори
+            if mat_cat == "CZ":
+                rec_qty = 0
+            else:
+                target_30d = daily_sales * 30.0
+                rec_qty = max(int(round(target_30d - current_stock)), 1)
+
             estimated_sum = round(rec_qty * buy_price, 2)
 
             sup_info = resolve_supplier_for_item(it)
@@ -278,6 +414,7 @@ async def get_low_stock_by_suppliers(
                     "total_items": 0,
                     "total_recommended_qty": 0,
                     "total_estimated_sum": 0.0,
+                    "active_order_items": 0,
                     "items": []
                 }
 
@@ -290,8 +427,16 @@ async def get_low_stock_by_suppliers(
                 "category": it.get("category", "Сантехника"),
                 "path_name": it.get("path_name", ""),
                 "current_stock": current_stock,
-                "sales_30d": sold_30d,
+                "sales_180d": sales_180d,
+                "monthly_qty": mat_info.get("monthly_qty", [0.0] * 6),
                 "daily_sales": daily_sales,
+                "abc": mat_info.get("abc", "C"),
+                "xyz": mat_info.get("xyz", "Z"),
+                "matrix_category": mat_cat,
+                "variation_pct": mat_info.get("variation_pct", 0.0),
+                "rationale": mat_info.get("rationale", "Буюртма асоси кўрсатилмаган"),
+                "order_allowed": mat_info.get("order_allowed", False),
+                "badge_color": mat_info.get("badge_color", "red"),
                 "recommended_qty": rec_qty,
                 "buy_price": buy_price,
                 "retail_price": retail_price,
@@ -300,8 +445,10 @@ async def get_low_stock_by_suppliers(
 
             suppliers_map[s_id]["items"].append(enriched_item)
             suppliers_map[s_id]["total_items"] += 1
-            suppliers_map[s_id]["total_recommended_qty"] += rec_qty
-            suppliers_map[s_id]["total_estimated_sum"] += estimated_sum
+            if mat_info.get("order_allowed", False):
+                suppliers_map[s_id]["total_recommended_qty"] += rec_qty
+                suppliers_map[s_id]["total_estimated_sum"] += estimated_sum
+                suppliers_map[s_id]["active_order_items"] += 1
 
         suppliers_list = list(suppliers_map.values())
         suppliers_list.sort(key=lambda s: s["total_estimated_sum"], reverse=True)
@@ -309,6 +456,7 @@ async def get_low_stock_by_suppliers(
         return {
             "status": "success",
             "threshold": threshold,
+            "period_days": 180,
             "total_suppliers": len(suppliers_list),
             "total_low_stock_items": len(filtered),
             "suppliers": suppliers_list
@@ -327,6 +475,7 @@ class BulkOrderItem(BaseModel):
     quantity: float = Field(..., description="Буюртма миқдори (дона)")
     buy_price: Optional[float] = Field(default=0.0, description="Харид нархи (сўм)")
     name: Optional[str] = Field(default=None, description="Товар номи")
+    matrix_category: Optional[str] = Field(default=None, description="ABC/XYZ тоифаси (масалан: AX, BY, CZ)")
 
 
 class BulkSupplierOrderRequest(BaseModel):
@@ -339,9 +488,9 @@ class BulkSupplierOrderRequest(BaseModel):
 @router.post("/create-bulk-supplier-order", summary="МойСклад: Таъминотчи бўйича ягона Заказ поставщику яратиш")
 async def create_bulk_supplier_order(payload: BulkSupplierOrderRequest):
     """
-    Бир хил таъминотчига тегишли барча товарларни сотув тарихи асосида битта умумий
-    «Заказ поставщику» (purchaseorder) ҳужжатига жамлаб МойСклад'да яратиш
-    ва Telegram (@Diyor_santexnika_2004_bot) орқали раҳбариятга хабарнома юбориш.
+    Бир хил таъминотчига тегишли барча товарларни 6 ойлик сотув тарихи ва ABC/XYZ
+    матрицаси асосида битта умумий «Заказ поставщику» (purchaseorder) ҳужжатига
+    жамлаб МойСклад'да яратиш. CZ (ноликвид) товарлари автоматик равишда чиқариб ташланади.
     """
     if not payload.items:
         raise HTTPException(status_code=400, detail="Буюртма учун товарлар кўрсатилмаган")
@@ -370,16 +519,24 @@ async def create_bulk_supplier_order(payload: BulkSupplierOrderRequest):
             }
             supplier_name = supplier_name or "ООО GROHE"
 
-        # 2. Позициялар рўйхатини тузиш
+        # 2. Позициялар рўйхатини тузиш (CZ товарлари автоматик чиқарилади)
         positions = []
         total_sum = 0.0
         total_qty = 0.0
         items_summary = []
+        skipped_cz_count = 0
 
         for it in payload.items:
+            # CZ тоифасидаги ноликвид товарлар буюртмага қўшилмайди
+            mat_cat = (it.matrix_category or "").upper()
+            if mat_cat == "CZ":
+                skipped_cz_count += 1
+                continue
+
             qty = float(it.quantity)
             if qty <= 0:
                 continue
+
             clean_pid = it.product_id.strip()
             buy_price = float(it.buy_price or 0.0)
             price_kop = int(round(buy_price * 100))
@@ -403,10 +560,13 @@ async def create_bulk_supplier_order(payload: BulkSupplierOrderRequest):
                 "name": pname,
                 "qty": qty,
                 "price": buy_price,
-                "total": item_total
+                "total": item_total,
+                "category": mat_cat
             })
 
         if not positions:
+            if skipped_cz_count > 0:
+                raise HTTPException(status_code=400, detail="Барча товарлар CZ (ноликвид) бўлгани сабабли буюртма бериш тақиқланган.")
             raise HTTPException(status_code=400, detail="Барча танланган товарлар миқдори нол бўлиши мумкин эмас")
 
         # 3. МойСклад'да «Заказ поставщику» яратиш
@@ -422,7 +582,7 @@ async def create_bulk_supplier_order(payload: BulkSupplierOrderRequest):
             },
             "agent": {"meta": supplier_meta},
             "positions": positions,
-            "description": f"Diyor Group Dashboard: Таъминотчи ({supplier_name}) бўйича умумий буюртма ({len(positions)} та позиция). {payload.notes or ''}".strip()
+            "description": f"Diyor Group Dashboard: Таъминотчи ({supplier_name}) бўйича 6 ойлик ABC/XYZ таҳлили асосидаги буюртма ({len(positions)} та позиция). {payload.notes or ''}".strip()
         }
 
         order_id = None
@@ -448,7 +608,8 @@ async def create_bulk_supplier_order(payload: BulkSupplierOrderRequest):
         for i, s_item in enumerate(items_summary[:7], 1):
             q_disp = int(s_item["qty"]) if s_item["qty"].is_integer() else s_item["qty"]
             p_disp = f"{int(s_item['price']):,}".replace(",", " ")
-            items_preview_lines.append(f"{i}. <b>{s_item['name']}</b> — {q_disp} дона ({p_disp} сўм)")
+            cat_badge = f"[{s_item['category']}]" if s_item['category'] else ""
+            items_preview_lines.append(f"{i}. <b>{s_item['name']}</b> {cat_badge} — {q_disp} дона ({p_disp} сўм)")
         if len(items_summary) > 7:
             items_preview_lines.append(f"<i>...ва яна {len(items_summary) - 7} та қўшимча товар</i>")
 
@@ -456,14 +617,16 @@ async def create_bulk_supplier_order(payload: BulkSupplierOrderRequest):
         tot_sum_disp = f"{int(total_sum):,}".replace(",", " ")
         tot_qty_disp = int(total_qty) if total_qty.is_integer() else total_qty
 
+        cz_note = f"\n⚠️ <i>{skipped_cz_count} та CZ (ноликвид) товар буюртмадан автоматик чиқариб ташланди.</i>" if skipped_cz_count > 0 else ""
+
         telegram_text = (
-            "📦 <b>МОЙСКЛАД: ТАЪМИНОТЧИ БЎЙИЧА ЯГОНА БУЮРТМА!</b>\n\n"
+            "📦 <b>МОЙСКЛАД: ТАЪМИНОТЧИ БЎЙИЧА 6 ОЙЛИК ABC/XYZ БУЮРТМА!</b>\n\n"
             f"🏢 <b>Таъминотчи:</b> {supplier_name}\n"
             f"📄 <b>Ҳужжат рақами:</b> Заказ поставщику №{order_name}\n"
             f"📊 <b>Позициялар сони:</b> {len(positions)} хил товар\n"
             f"🔢 <b>Жами ҳажм:</b> {tot_qty_disp} дона\n"
             f"💰 <b>Умумий харид қиймати:</b> {tot_sum_disp} сўм\n\n"
-            f"📋 <b>Буюртма таркиби (топ товарлар):</b>\n{items_text}\n\n"
+            f"📋 <b>Буюртма таркиби:</b>\n{items_text}{cz_note}\n\n"
             "<i>Ҳужжат МойСклад «Закупки -> Заказы поставщикам» бўлимига сақланди.</i>"
         )
 
@@ -493,6 +656,7 @@ async def create_bulk_supplier_order(payload: BulkSupplierOrderRequest):
             "supplier_id": supplier_id,
             "supplier_name": supplier_name,
             "positions_count": len(positions),
+            "skipped_cz_count": skipped_cz_count,
             "total_quantity": total_qty,
             "total_sum": total_sum,
             "ms_created": ms_created,
