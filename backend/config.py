@@ -70,6 +70,8 @@ class Settings(BaseSettings):
     store_work_start_hour: int = Field(default=9, description="Work shift start hour (e.g. 9 for 09:00)")
     kpi_bonus_percent: float = Field(default=2.0, description="Default sales KPI bonus percent")
     telegram_group_id: str = Field(default="", description="Telegram management group ID")
+    management_group_id: str = Field(default="", description="Telegram management group ID")
+    admin_chat_id: str = Field(default="", description="Telegram admin chat ID")
 
     # Aliases requested for Telegram bot GPS check
     @property
@@ -85,7 +87,15 @@ class Settings(BaseSettings):
         return self.store_radius_meters
 
     @property
+    def MANAGEMENT_GROUP_ID(self) -> str:
+        return self.management_group_id or self.telegram_group_id or os.getenv("MANAGEMENT_GROUP_ID") or os.getenv("TELEGRAM_GROUP_ID") or ""
+
+    @property
+    def ADMIN_CHAT_ID(self) -> str:
+        return self.admin_chat_id or os.getenv("ADMIN_CHAT_ID") or self.telegram_ceo_chat_id or "5950380558"
+
+    @property
     def TELEGRAM_GROUP_ID(self) -> str:
-        return self.telegram_group_id or self.telegram_alert_chat_id or self.telegram_ceo_chat_id or "5950380558"
+        return self.management_group_id or self.telegram_group_id or self.telegram_alert_chat_id or self.telegram_ceo_chat_id or "5950380558"
 
 settings = Settings()

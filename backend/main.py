@@ -171,6 +171,20 @@ async def serve_dashboard():
     return FileResponse(DASHBOARD_HTML_PATH, media_type="text/html; charset=utf-8")
 
 
+GEOFENCES_JSON_PATH = Path(__file__).resolve().parent / "data" / "geofences.json"
+GEOFENCES_ALT_PATH = Path(__file__).resolve().parent.parent / "data" / "geofences.json"
+
+@app.get("/data/geofences.json", response_class=FileResponse, summary="Ҳақиқий geofences JSON файли")
+async def serve_geofences_json():
+    """Доимий сақланган geofences JSON файлини қайтариш."""
+    if GEOFENCES_JSON_PATH.exists():
+        return FileResponse(GEOFENCES_JSON_PATH, media_type="application/json")
+    if GEOFENCES_ALT_PATH.exists():
+        return FileResponse(GEOFENCES_ALT_PATH, media_type="application/json")
+    return JSONResponse(status_code=404, content={"detail": "geofences.json топилмади"})
+
+
+
 _ms_status_cache = {"ts": 0.0, "data": None}
 
 

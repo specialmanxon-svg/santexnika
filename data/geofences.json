@@ -1,0 +1,32 @@
+[
+  {
+    "id": 1,
+    "name": "Марказий дўкон (Бухоро)",
+    "address": "Бухоро ш., Ибн Сино кўчаси",
+    "latitude": 39.748992,
+    "longitude": 64.432118,
+    "radius_meters": 150.0,
+    "is_active": true,
+    "created_at": "22.09.2026 05:05"
+  },
+  {
+    "id": 2,
+    "name": "Бабур кўчаси филиали (Бухоро)",
+    "address": "Бухоро ш., Бобур кўчаси",
+    "latitude": 39.768,
+    "longitude": 64.445,
+    "radius_meters": 150.0,
+    "is_active": true,
+    "created_at": "22.09.2026 11:46"
+  },
+  {
+    "id": 3,
+    "name": "Комил Қодиров отель объекти",
+    "address": "Бухоро ш., К. Қодиров кўчаси",
+    "latitude": 39.77455,
+    "longitude": 64.42865,
+    "radius_meters": 150.0,
+    "is_active": true,
+    "created_at": "22.09.2026 11:46"
+  }
+]

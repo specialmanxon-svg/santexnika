@@ -34,15 +34,20 @@ async def main():
     print("=" * 60)
 
     bot, dp = create_bot_and_dispatcher()
-    try:
-        me = await bot.get_me()
-        print(f"✅ Telegram Bot уланди: @{me.username} ({me.full_name})")
-        print("📡 GPS давомад қабул қилишга тайёр...")
-        await dp.start_polling(bot, allowed_updates=["message", "callback_query"])
-    except Exception as e:
-        print(f"❌ Ботни ишга туширишда хатолик: {e}")
-    finally:
-        await bot.session.close()
+    while True:
+        try:
+            me = await bot.get_me()
+            print(f"✅ Telegram Bot уланди: @{me.username} ({me.full_name})")
+            print("📡 GPS давомад қабул қилишга тайёр...")
+            await dp.start_polling(bot, allowed_updates=["message", "callback_query"])
+        except asyncio.CancelledError:
+            print("🛑 Бот тўхтатилди.")
+            break
+        except Exception as e:
+            print(f"⚠️ Тармоқ ёки Telegram хатолиги: {e}. 5 сониядан кейин қайта уланади...")
+            await asyncio.sleep(5)
+    await bot.session.close()
 
 if __name__ == "__main__":
     asyncio.run(main())
+

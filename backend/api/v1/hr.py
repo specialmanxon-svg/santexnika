@@ -243,6 +243,68 @@ async def delete_location(
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
 
 
+class GeofencePayload(BaseModel):
+    id: Optional[int] = Field(default=None, description="Объект ID (таҳрирлашда юборилади)")
+    name: str = Field(..., description="Объект номи")
+    address: Optional[str] = Field(default="", description="Объект манзили")
+    latitude: float = Field(..., description="GPS кенглик (latitude)")
+    longitude: float = Field(..., description="GPS узунлик (longitude)")
+    radius_meters: Optional[float] = Field(default=150.0, description="Рухсат этилган радиус (метр)")
+    is_active: Optional[bool] = Field(default=True, description="Фаол ёки нофаол")
+
+
+@router.get("/geofences", summary="Сервердаги барча сақланган ҳақиқий объектлар рўйхати (JSON + DB)")
+async def get_geofences(
+    active_only: bool = Query(False, description="Фақат фаол объектларни олиш"),
+    session: AsyncSession = Depends(get_db)
+):
+    """
+    Сервердаги барча сақланган ҳақиқий объектлар (geofences) рўйхатини қайтаради.
+    """
+    try:
+        return await hr_service.get_locations(session, active_only=active_only)
+    except Exception as e:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+
+
+@router.post("/geofences", summary="Янги объект қўшиш ёки мавжудини ўзгартириш (доимий сақлаш)")
+async def save_geofence(
+    request: GeofencePayload,
+    session: AsyncSession = Depends(get_db)
+):
+    """
+    Янги объект қўшиш ёки мавжудини (id бўлса) таҳрирлаб, файл/базага доимий ёзиш.
+    """
+    try:
+        data = request.model_dump(exclude_unset=True)
+        geofence_id = data.get("id")
+        if geofence_id:
+            return await hr_service.update_location(session, geofence_id, data)
+        else:
+            return await hr_service.create_location(session, data)
+    except ValueError as ve:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(ve))
+    except Exception as e:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+
+
+@router.delete("/geofences/{geofence_id}", summary="Объектни базадан бутунлай ўчириш")
+async def remove_geofence(
+    geofence_id: int,
+    session: AsyncSession = Depends(get_db)
+):
+    """
+    Объектни базадан ва data/geofences.json файлидан бутунлай ўчириш.
+    """
+    try:
+        return await hr_service.delete_location(session, geofence_id, soft_delete=False)
+    except ValueError as ve:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(ve))
+    except Exception as e:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+
+
+
 
 # Lazy-loaded bot and dispatcher for webhook handling
 _bot_instance = None

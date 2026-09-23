@@ -121,29 +121,46 @@ async def sync_to_backend_api(payload: dict):
         logger.warning(f"sync_to_backend_api хатоси: {e}")
 
 
-async def notify_management(bot: Bot, text: str):
-    """Раҳбарият гуруҳи ва каналига хабар юбориш."""
-    chat_ids = set()
-    group_id = os.getenv("TELEGRAM_GROUP_ID") or getattr(settings, "telegram_group_id", None)
-    if group_id and str(group_id).strip():
-        chat_ids.add(str(group_id).strip())
+async def send_attendance_notification(bot: Bot, text: str):
+    """
+    2. Умумий давомад назорати (Фақат Раҳбариятга / Каналга / Гуруҳга):
+    - «Янги давомад қайди (GPS)» ва «Иш сменаси якунланди (GPS)» каби мониторинг хабарлари
+      фақат махсус Раҳбарият гуруҳига (MANAGEMENT_GROUP_ID) ёки Админнинг аниқ ADMIN_CHAT_IDсига юборилади.
+    - Оддий ходимларнинг шахсий чатига БОШҚА ходимлар ҳақида ҳеч қачон хабар ЮБОРИЛМАЙДИ!
+    - Барча фойдаланувчилар бўйича цикл (for user in all_users) йўқ, фақат раҳбарият манзили олинади.
+    """
+    management_group = (
+        os.getenv("MANAGEMENT_GROUP_ID")
+        or getattr(settings, "management_group_id", None)
+        or os.getenv("TELEGRAM_GROUP_ID")
+        or getattr(settings, "telegram_group_id", None)
+    )
+    admin_chat_id = (
+        os.getenv("ADMIN_CHAT_ID")
+        or getattr(settings, "admin_chat_id", None)
+        or getattr(settings, "ADMIN_CHAT_ID", None)
+        or getattr(settings, "telegram_ceo_chat_id", None)
+        or "5950380558"
+    )
 
-    alert_id = getattr(settings, "TELEGRAM_ALERT_CHAT_ID", None) or os.getenv("TELEGRAM_ALERT_CHAT_ID")
-    if alert_id and str(alert_id).strip():
-        chat_ids.add(str(alert_id).strip())
+    targets = set()
+    # Агар гуруҳ ID кўрсатилган бўлса, фақат гуруҳга юборилади
+    if management_group and str(management_group).strip():
+        targets.add(str(management_group).strip())
+    # Агар махсус гуруҳ бўлмаса, фақат расмий раҳбар (Админ) чатига юборилади
+    elif admin_chat_id and str(admin_chat_id).strip():
+        targets.add(str(admin_chat_id).strip())
 
-    ceo_id = getattr(settings, "TELEGRAM_CEO_CHAT_ID", None) or os.getenv("TELEGRAM_CEO_CHAT_ID")
-    if ceo_id and str(ceo_id).strip():
-        chat_ids.add(str(ceo_id).strip())
-
-    chat_ids.add("5950380558")  # Feruz Latipov (@Diyor_manager)
-
-    for cid in chat_ids:
+    for target_chat in targets:
         try:
-            await bot.send_message(chat_id=cid, text=text, parse_mode="HTML")
-            logger.info(f"Раҳбариятга хабар юборилди: {cid}")
+            await bot.send_message(chat_id=target_chat, text=text, parse_mode="HTML")
+            logger.info(f"Давомад хабари раҳбариятга юборилди: {target_chat}")
         except Exception as ex:
-            logger.warning(f"Раҳбариятга хабар юборишда хатолик ({cid}): {ex}")
+            logger.warning(f"Давомад хабарини раҳбариятга юборишда хатолик ({target_chat}): {ex}")
+
+
+# Қўшимча мувофиқлик учун
+notify_management = send_attendance_notification
 
 
 # ═══════════════ KLAVIATURALAR ═══════════════
@@ -591,16 +608,15 @@ async def handle_location(message: types.Message, state: FSMContext):
                 await session.commit()
 
                 resp_text = (
-                    f"✅ <b>Ишга келиш муваффақиятли қайд этилди!</b>\n\n"
+                    f"✅ <b>Ишга келишингиз қайд этилди. Объект: {target_name}</b>\n\n"
                     f"👤 <b>Ходим:</b> {emp.employee_name}\n"
-                    f"🏢 <b>Объект:</b> <b>{target_name}</b>\n"
                     f"⏰ <b>Вақт:</b> {now_local.strftime('%H:%M:%S')} ({now_local.strftime('%d.%m.%Y')})\n"
                     f"📏 <b>Масофа:</b> {int(min_dist)} метр\n"
                     f"📊 <b>Ҳолат:</b> {status_label}\n\n"
                     f"<i>Давомад бошқарув панели (Dashboard) га узатилди. Яхши иш куни тилаймиз!</i>"
                 )
 
-                # 3. Раҳбарият гуруҳига билдиришнома юбориш
+                # 3. Раҳбарият гуруҳига билдиришнома юбориш (Фақат Раҳбариятга)
                 mgmt_text = (
                     f"📍 <b>Янги давомад қайди (GPS)</b>\n\n"
                     f"👤 <b>Ходим:</b> {emp.employee_name}\n"
@@ -611,7 +627,7 @@ async def handle_location(message: types.Message, state: FSMContext):
                     f"📱 <b>Манба:</b> 📱 Telegram\n\n"
                     f"🌐 <a href='https://diyorgroup.uz/index.html#hr'>Дашбордда кўриш</a>"
                 )
-                asyncio.create_task(notify_management(message.bot, mgmt_text))
+                asyncio.create_task(send_attendance_notification(message.bot, mgmt_text))
 
             else:
                 # CHECKOUT
@@ -651,30 +667,25 @@ async def handle_location(message: types.Message, state: FSMContext):
                     await session.commit()
 
                 resp_text = (
-                    f"🏁 <b>Иш сменаси муваффақиятли якунланди!</b>\n\n"
+                    f"🏁 <b>Смена якунланди. Ишланган вақт: {hours} соат</b>\n\n"
                     f"👤 <b>Ходим:</b> {emp.employee_name}\n"
                     f"🏢 <b>Объект:</b> <b>{target_name}</b>\n"
-                    f"⏰ <b>Кетиш вақти:</b> {now_local.strftime('%H:%M:%S')}\n"
-                    f"⏱ <b>Ишланган вақт:</b> {hours} соат\n\n"
+                    f"⏰ <b>Кетиш вақти:</b> {now_local.strftime('%H:%M:%S')} ({now_local.strftime('%d.%m.%Y')})\n\n"
                     f"<i>Давомад дашбордда акс эттирилди. Ҳорманг!</i>"
                 )
 
-                # 3. Раҳбарият гуруҳига билдиришнома юбориш
+                # 3. Раҳбарият гуруҳига билдиришнома юбориш (Фақат Раҳбариятга)
                 mgmt_text = (
-                    f"🏁 <b>Иш якунланди (GPS)</b>\n\n"
+                    f"🏁 <b>Иш сменаси якунланди (GPS)</b>\n\n"
                     f"👤 <b>Ходим:</b> {emp.employee_name}\n"
                     f"🏢 <b>Объект:</b> {target_name}\n"
                     f"⏰ <b>Кетган вақти:</b> {now_local.strftime('%H:%M:%S')} ({now_local.strftime('%d.%m.%Y')})\n"
                     f"⏱ <b>Ишланган вақт:</b> {hours} соат\n"
                     f"📱 <b>Манба:</b> 📱 Telegram"
                 )
-                asyncio.create_task(notify_management(message.bot, mgmt_text))
+                asyncio.create_task(send_attendance_notification(message.bot, mgmt_text))
 
-        await message.answer(resp_text, reply_markup=get_main_keyboard(), parse_mode="HTML")
-
-    except Exception as e:
-        logger.error(f"Давомадни сақлашда хатолик: {e}")
-
+        # 1. Шахсий хабарнома — фақат ушбу ходимнинг шахсий чатига
         await message.answer(resp_text, reply_markup=get_main_keyboard(), parse_mode="HTML")
 
     except Exception as e:

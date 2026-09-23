@@ -1,3 +1,5 @@
+import os
+import json
 import asyncio
 import time
 import math
@@ -17,6 +19,45 @@ logger = structlog.get_logger(__name__)
 
 # Uzbekistan Timezone (UTC+5)
 UZ_TZ = timezone(timedelta(hours=5))
+
+
+def sync_geofences_to_json(locations: List[Dict[str, Any]]) -> None:
+    """Save geofences permanently to data/geofences.json file."""
+    try:
+        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        root_dir = os.path.dirname(base_dir)
+        data_dirs = [
+            os.path.join(base_dir, "data"),
+            os.path.join(root_dir, "data")
+        ]
+        for d in data_dirs:
+            os.makedirs(d, exist_ok=True)
+            filepath = os.path.join(d, "geofences.json")
+            with open(filepath, "w", encoding="utf-8") as f:
+                json.dump(locations, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        logger.warning("sync_geofences_to_json_failed", error=str(e))
+
+
+def load_geofences_from_json() -> List[Dict[str, Any]]:
+    """Load geofences from data/geofences.json file if exists."""
+    try:
+        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        root_dir = os.path.dirname(base_dir)
+        paths = [
+            os.path.join(base_dir, "data", "geofences.json"),
+            os.path.join(root_dir, "data", "geofences.json")
+        ]
+        for p in paths:
+            if os.path.exists(p):
+                with open(p, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                    if isinstance(data, list) and data:
+                        return data
+    except Exception as e:
+        logger.warning("load_geofences_from_json_failed", error=str(e))
+    return []
+
 
 
 def calculate_haversine_distance(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
@@ -72,7 +113,7 @@ class HRService:
         }
 
     async def get_locations(self, session: AsyncSession, active_only: bool = False) -> List[Dict[str, Any]]:
-        """Get all registered workplaces and geofences."""
+        """Get all registered workplaces and geofences, synced with data/geofences.json."""
         stmt = select(Workplace).order_by(Workplace.id)
         if active_only:
             stmt = stmt.where(Workplace.is_active == 1)
@@ -80,48 +121,60 @@ class HRService:
         locations = list(res.scalars().all())
 
         if not locations:
-            # Auto-seed default workplaces if empty
-            default_wps = [
-                Workplace(
-                    name="Марказий дўкон (Бухоро)",
-                    address="Бухоро ш., Ибн Сино кўчаси",
-                    latitude=settings.STORE_LAT,
-                    longitude=settings.STORE_LON,
-                    radius_meters=settings.MAX_DISTANCE_METERS,
-                    is_active=1
-                ),
-                Workplace(
-                    name="Бабур кўчаси объекти",
-                    address="Тошкент ш., Бобур кўчаси (ул. Бабур)",
-                    latitude=41.285000,
-                    longitude=69.252000,
-                    radius_meters=300.0,
-                    is_active=1
-                ),
-                Workplace(
-                    name="Комил Қодиров отель объекти",
-                    address="Бухоро ш., К. Қодиров кўчаси",
-                    latitude=39.774550,
-                    longitude=64.428650,
-                    radius_meters=150.0,
-                    is_active=1
-                ),
-                Workplace(
-                    name="Бабур кўчаси филиали (Бухоро)",
-                    address="Бухоро ш., Бобур кўчаси",
-                    latitude=39.768000,
-                    longitude=64.445000,
-                    radius_meters=150.0,
-                    is_active=1
-                ),
-            ]
-            session.add_all(default_wps)
-            await session.commit()
-            for w in default_wps:
-                await session.refresh(w)
-            locations = default_wps
+            # 1. Try restoring from data/geofences.json first
+            from_json = load_geofences_from_json()
+            if from_json:
+                seeded_wps = []
+                for item in from_json:
+                    w = Workplace(
+                        name=item.get("name", "Иш объекти"),
+                        address=item.get("address"),
+                        latitude=float(item.get("latitude", settings.STORE_LAT)),
+                        longitude=float(item.get("longitude", settings.STORE_LON)),
+                        radius_meters=float(item.get("radius_meters", 150.0)),
+                        is_active=1 if item.get("is_active", True) else 0
+                    )
+                    seeded_wps.append(w)
+                session.add_all(seeded_wps)
+                await session.commit()
+                for w in seeded_wps:
+                    await session.refresh(w)
+                locations = seeded_wps
+            else:
+                # 2. Auto-seed default Bukhara workplaces if empty
+                default_wps = [
+                    Workplace(
+                        name="Марказий дўкон (Бухоро)",
+                        address="Бухоро ш., Ибн Сино кўчаси",
+                        latitude=settings.STORE_LAT,
+                        longitude=settings.STORE_LON,
+                        radius_meters=settings.MAX_DISTANCE_METERS,
+                        is_active=1
+                    ),
+                    Workplace(
+                        name="Бабур кўчаси филиали (Бухоро)",
+                        address="Бухоро ш., Бобур кўчаси",
+                        latitude=39.768000,
+                        longitude=64.445000,
+                        radius_meters=150.0,
+                        is_active=1
+                    ),
+                    Workplace(
+                        name="Комил Қодиров отель объекти",
+                        address="Бухоро ш., К. Қодиров кўчаси",
+                        latitude=39.774550,
+                        longitude=64.428650,
+                        radius_meters=150.0,
+                        is_active=1
+                    ),
+                ]
+                session.add_all(default_wps)
+                await session.commit()
+                for w in default_wps:
+                    await session.refresh(w)
+                locations = default_wps
 
-        return [
+        result = [
             {
                 "id": loc.id,
                 "name": loc.name,
@@ -135,8 +188,14 @@ class HRService:
             for loc in locations
         ]
 
+        # Sync full list to data/geofences.json
+        if not active_only:
+            sync_geofences_to_json(result)
+
+        return result
+
     async def create_location(self, session: AsyncSession, data: Dict[str, Any]) -> Dict[str, Any]:
-        """Register a new workplace/geofence."""
+        """Register a new workplace/geofence and sync with data/geofences.json."""
         name = data.get("name")
         if not name or not str(name).strip():
             raise ValueError("Объект номи киритилиши шарт!")
@@ -144,21 +203,32 @@ class HRService:
         lon = data.get("longitude")
         if lat is None or lon is None:
             raise ValueError("Координаталар (latitude ва longitude) киритилиши шарт!")
-        radius = float(data.get("radius_meters", 100.0))
+        
+        # Auto-detect and swap if lat and lon were inverted
+        lat_f = float(lat)
+        lon_f = float(lon)
+        if lat_f > 50.0 and lon_f < 50.0:
+            lat_f, lon_f = lon_f, lat_f
+
+        radius = float(data.get("radius_meters", 150.0))
         if radius <= 0:
             raise ValueError("Радиус 0 дан катта бўлиши шарт!")
 
         wp = Workplace(
             name=str(name).strip(),
             address=str(data.get("address", "")).strip() if data.get("address") else None,
-            latitude=float(lat),
-            longitude=float(lon),
+            latitude=lat_f,
+            longitude=lon_f,
             radius_meters=radius,
             is_active=1 if data.get("is_active", True) else 0
         )
         session.add(wp)
         await session.commit()
         await session.refresh(wp)
+
+        # Sync updated list to geofences.json
+        await self.get_locations(session, active_only=False)
+
         return {
             "status": "success",
             "message": f"«{wp.name}» объекти муваффақиятли қўшилди!",
@@ -175,7 +245,7 @@ class HRService:
         }
 
     async def update_location(self, session: AsyncSession, location_id: int, data: Dict[str, Any]) -> Dict[str, Any]:
-        """Update workplace/geofence details."""
+        """Update workplace/geofence details and sync with data/geofences.json."""
         stmt = select(Workplace).where(Workplace.id == location_id)
         res = await session.execute(stmt)
         wp = res.scalar_one_or_none()
@@ -186,10 +256,21 @@ class HRService:
             wp.name = str(data["name"]).strip()
         if "address" in data:
             wp.address = str(data["address"]).strip() if data["address"] else None
-        if "latitude" in data and data["latitude"] is not None:
-            wp.latitude = float(data["latitude"])
-        if "longitude" in data and data["longitude"] is not None:
-            wp.longitude = float(data["longitude"])
+        
+        lat = data.get("latitude")
+        lon = data.get("longitude")
+        if lat is not None and lon is not None:
+            lat_f = float(lat)
+            lon_f = float(lon)
+            if lat_f > 50.0 and lon_f < 50.0:
+                lat_f, lon_f = lon_f, lat_f
+            wp.latitude = lat_f
+            wp.longitude = lon_f
+        elif lat is not None:
+            wp.latitude = float(lat)
+        elif lon is not None:
+            wp.longitude = float(lon)
+
         if "radius_meters" in data and data["radius_meters"] is not None:
             wp.radius_meters = float(data["radius_meters"])
         if "is_active" in data and data["is_active"] is not None:
@@ -198,6 +279,10 @@ class HRService:
         wp.updated_at = datetime.utcnow()
         await session.commit()
         await session.refresh(wp)
+
+        # Sync updated list to geofences.json
+        await self.get_locations(session, active_only=False)
+
         return {
             "status": "success",
             "message": f"«{wp.name}» объекти муваффақиятли янгиланди!",
@@ -213,7 +298,7 @@ class HRService:
         }
 
     async def delete_location(self, session: AsyncSession, location_id: int, soft_delete: bool = False) -> Dict[str, Any]:
-        """Delete or archive a workplace."""
+        """Delete or archive a workplace and sync with data/geofences.json."""
         stmt = select(Workplace).where(Workplace.id == location_id)
         res = await session.execute(stmt)
         wp = res.scalar_one_or_none()
@@ -225,10 +310,12 @@ class HRService:
             wp.is_active = 0
             wp.updated_at = datetime.utcnow()
             await session.commit()
+            await self.get_locations(session, active_only=False)
             return {"status": "success", "message": f"«{loc_name}» объекти архивланди (нофаол қилинди)."}
         else:
             await session.delete(wp)
             await session.commit()
+            await self.get_locations(session, active_only=False)
             return {"status": "success", "message": f"«{loc_name}» объекти ўчирилди."}
 
     async def checkin(
