@@ -274,9 +274,9 @@
             <div class="overflow-x-auto">
                 <table>
                     <thead>
-                        <tr><th>#</th><th>Товар номи</th><th>Гуруҳ</th><th>Қолдиқ</th><th>Нархи (сўм)</th></tr>
+                        <tr><th>#</th><th>Товар номи</th><th>Гуруҳ</th><th>Қолдиқ</th><th>Нархи (сўм)</th><th class="text-right">Буюртма</th></tr>
                     </thead>
-                    <tbody id="lowstock-table"><tr><td colspan="5" class="text-center text-gray-400 py-8">Маълумотлар юкланмоқда...</td></tr></tbody>
+                    <tbody id="lowstock-table"><tr><td colspan="6" class="text-center text-gray-400 py-8">Маълумотлар юкланмоқда...</td></tr></tbody>
                 </table>
             </div>
         </div>
@@ -428,17 +428,30 @@
             </div>
         </div>
 
-        <!-- Margin by category -->
+        <!-- Brand Margin & Profit Analysis (Брендлар бўйича маржа ва фойда таҳлили) -->
         <div class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-            <div class="px-4 py-3 border-b border-gray-200 bg-blue-50">
-                <h3 class="font-semibold text-blue-800">📊 Маҳсулот тоифалари бўйича маржа</h3>
+            <div class="px-4 py-3 border-b border-gray-200 bg-blue-50 flex items-center justify-between flex-wrap gap-2">
+                <div class="flex items-center gap-2">
+                    <span class="text-lg">📊</span>
+                    <h3 class="font-semibold text-blue-900">Брендлар бўйича маржа ва фойда таҳлили</h3>
+                </div>
+                <span id="brand-margin-count-badge" class="text-xs bg-blue-100 text-blue-800 px-3 py-1 rounded-full font-bold">0 та бренд</span>
             </div>
             <div class="overflow-x-auto">
-                <table>
+                <table class="w-full text-left">
                     <thead>
-                        <tr><th>Тоифа</th><th>Савдо суммаси</th><th>Таннарх</th><th>Маржа</th><th>Маржа %</th></tr>
+                        <tr class="bg-gray-50 text-gray-600 text-xs border-b">
+                            <th class="w-12 text-center">#</th>
+                            <th>БРЕНД НОМИ</th>
+                            <th>САВДО СУММАСИ</th>
+                            <th>ТАННАРХ</th>
+                            <th>МАРЖА</th>
+                            <th>МАРЖА %</th>
+                        </tr>
                     </thead>
-                    <tbody id="margin-table"><tr><td colspan="5" class="text-center text-gray-400 py-8">Маълумотлар юкланмоқда...</td></tr></tbody>
+                    <tbody id="brand-margin-table">
+                        <tr><td colspan="6" class="text-center text-gray-400 py-8">Маълумотлар юкланмоқда...</td></tr>
+                    </tbody>
                 </table>
             </div>
         </div>
@@ -915,6 +928,74 @@
                     Ёпиш
                 </button>
             </div>
+        </div>
+    </div>
+<!-- ═══════════════ MODAL: МОЙСКЛАД ЗАКАЗ ПОСТАВЩИКУ ═══════════════ -->
+<div id="purchaseOrderModal" class="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden">
+    <div class="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden border border-gray-100 animate-in fade-in zoom-in duration-200">
+        <!-- Header -->
+        <div class="bg-gradient-to-r from-blue-900 to-indigo-900 text-white px-6 py-4 flex items-center justify-between">
+            <div class="flex items-center gap-2.5">
+                <span class="text-2xl">📦</span>
+                <div>
+                    <h3 class="font-bold text-base leading-tight">МойСклад: Заказ поставщику</h3>
+                    <p class="text-xs text-blue-200">Таъминотчига янги буюртма яратиш</p>
+                </div>
+            </div>
+            <button onclick="closePurchaseOrderModal()" class="text-white/70 hover:text-white text-2xl font-bold leading-none">&times;</button>
+        </div>
+
+        <!-- Body -->
+        <div class="p-6 space-y-4 text-sm text-gray-700">
+            <input type="hidden" id="modal-po-product-id" value="">
+
+            <div>
+                <label class="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1">Товар номи</label>
+                <div id="modal-po-product-name" class="font-bold text-gray-900 bg-gray-50 p-3 rounded-xl border border-gray-200 text-sm leading-snug">
+                    —
+                </div>
+            </div>
+
+            <div class="grid grid-cols-2 gap-3">
+                <div>
+                    <label class="block text-xs font-semibold text-gray-500 mb-1">Ҳозирги қолдиқ</label>
+                    <div id="modal-po-current-stock" class="font-bold text-red-600 bg-red-50 p-2.5 rounded-lg border border-red-100 text-sm">
+                        0 дона
+                    </div>
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-gray-700 mb-1">Буюртма сони (дона) *</label>
+                    <input type="number" id="modal-po-qty" min="1" max="10000" value="10" 
+                        class="w-full border-2 border-indigo-200 focus:border-indigo-600 rounded-lg p-2 font-bold text-indigo-900 text-sm outline-none">
+                </div>
+            </div>
+
+            <div>
+                <label class="block text-xs font-semibold text-gray-500 mb-1">Қўшимча изоҳ (ихтиёрий)</label>
+                <input type="text" id="modal-po-notes" placeholder="Масалан: Шошилинч етказиб бериш керак" 
+                    class="w-full border border-gray-200 rounded-lg p-2 text-sm outline-none focus:border-indigo-500">
+            </div>
+
+            <div class="bg-blue-50 border border-blue-100 rounded-xl p-3 text-xs text-blue-800 space-y-1">
+                <div class="font-semibold flex items-center gap-1">
+                    <span>💡</span> Буюртма берилганда:
+                </div>
+                <ul class="list-disc list-inside text-blue-700 space-y-0.5 pl-1">
+                    <li>МойСклад тизимида «Заказ поставщику» ҳужжати очилади.</li>
+                    <li>Раҳбарият/Таъминотчига Telegram (@Diyor_santexnika_2004_bot) орқали расмий хабарнома юборилади.</li>
+                </ul>
+            </div>
+        </div>
+
+        <!-- Footer -->
+        <div class="px-6 py-3.5 bg-gray-50 border-t border-gray-200 flex items-center justify-end gap-2">
+            <button onclick="closePurchaseOrderModal()" class="btn bg-gray-200 hover:bg-gray-300 text-gray-700 text-xs py-2 px-4 rounded-lg">
+                Бекор қилиш
+            </button>
+            <button id="btn-submit-po" onclick="submitPurchaseOrder()" class="btn btn-primary text-xs py-2 px-5 rounded-lg flex items-center gap-1.5 shadow-md">
+                <span id="submit-po-spinner" class="hidden loader" style="width: 14px; height: 14px; border-width: 2px;"></span>
+                <span id="submit-po-text">🛒 МойСклад'га буюртма юбориш</span>
+            </button>
         </div>
     </div>
 </div>
@@ -1622,10 +1703,17 @@ function applyWarehouseFilters() {
     const lsBody = document.getElementById('lowstock-table');
     if (lsBody) {
         if (!filteredLowStock.length) {
-            lsBody.innerHTML = `<tr><td colspan="5" class="text-center text-gray-400 py-8">🔍 Танланган бренд ёки қидирув бўйича кам қолган товар топилмади</td></tr>`;
+            lsBody.innerHTML = `<tr><td colspan="6" class="text-center text-gray-400 py-8">🔍 Танланган бренд ёки қидирув бўйича кам қолган товар топилмади</td></tr>`;
         } else {
-            lsBody.innerHTML = filteredLowStock.slice(0, 100).map((item, i) => `
-                <tr class="hover:bg-gray-50 transition-colors">
+            lsBody.innerHTML = filteredLowStock.slice(0, 100).map((item, i) => {
+                const pId = item.id || item.product_id || item.sku || '';
+                const pNameEscaped = (item.name || '').replace(/['"\\]/g, ' ');
+                const stockQty = item.stock_qty || item.stock_free || 0;
+                const isOrdered = orderedProductsSet.has(pId);
+                const orderBadge = orderedProductsMap[pId] ? `(№${orderedProductsMap[pId]})` : '';
+
+                return `
+                <tr class="hover:bg-gray-50 transition-colors" id="row-po-${pId}">
                     <td class="text-gray-400 text-xs">${i + 1}</td>
                     <td class="font-medium text-gray-900">
                         <div class="flex items-center gap-1.5 flex-wrap">
@@ -1635,11 +1723,111 @@ function applyWarehouseFilters() {
                         <div class="text-xs text-gray-400 font-mono mt-0.5">SKU: ${item.sku || '—'}</div>
                     </td>
                     <td><span class="badge badge-blue">${item.category || item.path_name || 'Сантехника'}</span></td>
-                    <td class="num"><span class="badge badge-yellow font-bold">${fmt(item.stock_qty || item.stock_free || 0)} дона</span></td>
+                    <td class="num"><span class="badge ${stockQty <= 2 ? 'badge-red' : 'badge-yellow'} font-bold">${fmt(stockQty)} дона</span></td>
                     <td class="num font-semibold text-gray-800">${fmt(item.retail_price || 0)} сўм</td>
+                    <td class="text-right">
+                        ${isOrdered ? `
+                            <span class="badge badge-green font-bold text-xs py-1.5 px-2.5 shadow-sm inline-flex items-center gap-1">
+                                ✅ МойСклад'да буюртма яратилди ${orderBadge}
+                            </span>
+                        ` : `
+                            <button id="btn-po-${pId}" 
+                                onclick="openPurchaseOrderModal('${pId}', '${pNameEscaped}', ${stockQty})" 
+                                class="btn btn-primary text-xs py-1.5 px-3 whitespace-nowrap shadow-sm hover:opacity-90 transition-all flex items-center gap-1 ml-auto">
+                                🛒 Буюртма бериш
+                            </button>
+                        `}
+                    </td>
                 </tr>
-            `).join('');
+                `;
+            }).join('');
         }
+    }
+}
+
+// ═══════════════ PURCHASE ORDER MODAL FUNCTIONS ═══════════════
+const orderedProductsSet = new Set();
+const orderedProductsMap = {};
+
+function openPurchaseOrderModal(productId, productName, currentStock) {
+    document.getElementById('modal-po-product-id').value = productId;
+    document.getElementById('modal-po-product-name').textContent = productName || '—';
+    document.getElementById('modal-po-current-stock').textContent = `${currentStock || 0} дона`;
+    document.getElementById('modal-po-qty').value = '10';
+    document.getElementById('modal-po-notes').value = '';
+
+    const btn = document.getElementById('btn-submit-po');
+    const btnText = document.getElementById('submit-po-text');
+    const spinner = document.getElementById('submit-po-spinner');
+    if (btn) btn.disabled = false;
+    if (btnText) btnText.textContent = '🛒 МойСклад\'га буюртма юбориш';
+    if (spinner) spinner.classList.add('hidden');
+
+    const modal = document.getElementById('purchaseOrderModal');
+    if (modal) modal.classList.remove('hidden');
+}
+
+function closePurchaseOrderModal() {
+    const modal = document.getElementById('purchaseOrderModal');
+    if (modal) modal.classList.add('hidden');
+}
+
+async function submitPurchaseOrder() {
+    const pId = document.getElementById('modal-po-product-id').value;
+    const pName = document.getElementById('modal-po-product-name').textContent.trim();
+    const qtyInput = document.getElementById('modal-po-qty');
+    const notesInput = document.getElementById('modal-po-notes');
+    const btn = document.getElementById('btn-submit-po');
+    const btnText = document.getElementById('submit-po-text');
+    const spinner = document.getElementById('submit-po-spinner');
+
+    const qty = parseFloat(qtyInput.value) || 10;
+    if (qty <= 0) {
+        toast('⚠️ Буюртма миқдори камида 1 бўлиши керак!', true);
+        return;
+    }
+
+    if (btn) btn.disabled = true;
+    if (spinner) spinner.classList.remove('hidden');
+    if (btnText) btnText.textContent = 'МойСклад\'га юборилмоқда...';
+
+    try {
+        const res = await apiPost('/warehouse/create-purchase-order', {
+            product_id: pId,
+            quantity: qty,
+            notes: notesInput.value || ''
+        });
+
+        if (res && res.status === 'success') {
+            const orderName = res.order_name || 'Янги';
+            orderedProductsSet.add(pId);
+            orderedProductsMap[pId] = orderName;
+
+            closePurchaseOrderModal();
+            toast(`✅ МойСклад'да Заказ поставщику №${orderName} яратилди! Telegram'га хабар юборилди.`);
+
+            // Update row button in table
+            const rowBtn = document.getElementById(`btn-po-${pId}`);
+            if (rowBtn) {
+                const parentTd = rowBtn.parentElement;
+                if (parentTd) {
+                    parentTd.innerHTML = `
+                        <span class="badge badge-green font-bold text-xs py-1.5 px-2.5 shadow-sm inline-flex items-center gap-1">
+                            ✅ МойСклад'да буюртма яратилди (№${orderName})
+                        </span>
+                    `;
+                }
+            }
+        } else {
+            toast('❌ Хатолик: ' + (res?.detail || 'Буюртма яратиб бўлмади'), true);
+        }
+    } catch (e) {
+        console.error('submitPurchaseOrder error:', e);
+        toast('❌ Сервер билан боғланишда хатолик юз берди', true);
+    } finally {
+        if (btn) btn.disabled = false;
+        if (spinner) spinner.classList.add('hidden');
+        if (btnText) btnText.textContent = '🛒 МойСклад\'га буюртма юбориш';
     }
 }
 
@@ -1993,18 +2181,15 @@ async function loadCashFlow(forceRefresh = false) {
     if (btn) btn.disabled = true;
     if (btnText) btnText.innerHTML = '<span class="loader align-middle mr-2"></span> Юкланмоқда...';
 
-    // Харажатлар таркибини ҳам параллел равишда юклаш
+    // Харажатлар таркибини ва Брендлар маржасини параллел юклаш
     loadExpensesByCategory(forceRefresh);
+    loadBrandMargin(forceRefresh);
 
     const cfTable = document.getElementById('cashflow-table');
-    const mgTable = document.getElementById('margin-table');
 
     // Display animated loading rows if tables don't have data yet
     if (cfTable && !cfTable.querySelector('tr.data-row')) {
         cfTable.innerHTML = '<tr><td colspan="4" class="text-center text-gray-400 py-8"><span class="loader align-middle mr-2"></span> МойСклад пул айланмаси юкланмоқда...</td></tr>';
-    }
-    if (mgTable && !mgTable.querySelector('tr.data-row')) {
-        mgTable.innerHTML = '<tr><td colspan="5" class="text-center text-gray-400 py-8"><span class="loader align-middle mr-2"></span> Товар тоифалари маржаси ҳисобланмоқда...</td></tr>';
     }
 
     try {
@@ -2043,29 +2228,6 @@ async function loadCashFlow(forceRefresh = false) {
                             <td class="num text-green-600 font-medium">+${fmt(r.income || 0)} сўм</td>
                             <td class="num text-red-600 font-medium">-${fmt(r.expense || 0)} сўм</td>
                             <td class="num ${balanceClass}">${balance > 0 ? '+' : ''}${fmt(balance)} сўм</td>
-                        </tr>
-                    `;
-                }).join('');
-            }
-        }
-
-        // 3. Margin by Category Table (Маҳсулот тоифалари бўйича маржа)
-        const catRows = data.category_margin || [];
-        if (mgTable) {
-            if (!catRows.length) {
-                mgTable.innerHTML = '<tr><td colspan="5" class="text-center text-gray-400 py-8">Товар тоифалари бўйича маълумот топилмади</td></tr>';
-            } else {
-                mgTable.innerHTML = catRows.map(c => {
-                    const marginVal = c.margin ?? ((c.sales || 0) - (c.cost || 0));
-                    const marginPctVal = c.margin_percent ?? (c.sales > 0 ? (marginVal / c.sales * 100) : 0);
-                    const badgeClass = marginPctVal >= 25 ? 'badge-green' : marginPctVal >= 10 ? 'badge-blue' : marginPctVal >= 0 ? 'badge-yellow' : 'badge-red';
-                    return `
-                        <tr class="data-row hover:bg-gray-50 transition">
-                            <td class="font-medium text-gray-900">${c.category || 'Бошқа сантехника'}</td>
-                            <td class="num font-semibold text-gray-800">${fmt(c.sales || 0)} сўм</td>
-                            <td class="num text-gray-600">${fmt(c.cost || 0)} сўм</td>
-                            <td class="num text-emerald-700 font-bold">${fmt(marginVal)} сўм</td>
-                            <td class="num"><span class="badge ${badgeClass} font-bold">${Number(marginPctVal).toFixed(1)}%</span></td>
                         </tr>
                     `;
                 }).join('');
@@ -2158,6 +2320,62 @@ async function loadExpensesByCategory(forceRefresh = false) {
     } catch (err) {
         console.error('loadExpensesByCategory error:', err);
         expTable.innerHTML = `<tr><td colspan="4" class="text-center text-red-500 py-8">Хатолик: ${escapeHtml(err.message)}</td></tr>`;
+    }
+}
+
+async function loadBrandMargin(forceRefresh = false) {
+    const table = document.getElementById('brand-margin-table');
+    const badge = document.getElementById('brand-margin-count-badge');
+    if (!table) return;
+
+    if (!table.querySelector('tr.data-row')) {
+        table.innerHTML = '<tr><td colspan="6" class="text-center text-gray-400 py-8"><span class="loader align-middle mr-2"></span> Брендлар маржаси ҳисобланмоқда...</td></tr>';
+    }
+
+    try {
+        const q = DateFilter.getQueryParams();
+        const url = `/finance/brand-margin?${q}${forceRefresh ? '&force_refresh=true' : ''}`;
+        const data = await apiFetch(url);
+
+        if (!data || !Array.isArray(data)) {
+            table.innerHTML = '<tr><td colspan="6" class="text-center text-gray-400 py-8">Брендлар маълумоти олинмади</td></tr>';
+            return;
+        }
+
+        if (data.length === 0) {
+            table.innerHTML = '<tr><td colspan="6" class="text-center text-gray-400 py-8">Танланган даврда савдо қилинган брендлар мавжуд эмас</td></tr>';
+            if (badge) badge.textContent = '0 та бренд';
+            return;
+        }
+
+        if (badge) {
+            badge.textContent = `${data.length} та бренд`;
+        }
+
+        table.innerHTML = data.map((b, idx) => {
+            const marginVal = b.margin ?? ((b.sales || 0) - (b.cost || 0));
+            const marginPctVal = Number(b.margin_percent ?? (b.sales > 0 ? (marginVal / b.sales * 100) : 0));
+            const badgeClass = marginPctVal >= 25 ? 'badge-green' : marginPctVal >= 10 ? 'badge-blue' : marginPctVal >= 0 ? 'badge-yellow' : 'badge-red';
+            const brandName = escapeHtml(b.brand || 'Бошқа брендлар');
+
+            return `
+                <tr class="data-row hover:bg-gray-50 transition">
+                    <td class="text-center text-gray-400 font-semibold text-xs">${idx + 1}</td>
+                    <td class="font-bold text-gray-900 flex items-center gap-2">
+                        <span class="inline-block w-2.5 h-2.5 rounded-full bg-indigo-500"></span>
+                        <span>${brandName}</span>
+                    </td>
+                    <td class="num font-semibold text-gray-800">${fmt(b.sales || 0)} сўм</td>
+                    <td class="num text-gray-600">${fmt(b.cost || 0)} сўм</td>
+                    <td class="num font-bold ${marginVal >= 0 ? 'text-emerald-700' : 'text-red-600'}">${marginVal >= 0 ? '+' : ''}${fmt(marginVal)} сўм</td>
+                    <td class="num"><span class="badge ${badgeClass} font-bold">${marginPctVal.toFixed(1)}%</span></td>
+                </tr>
+            `;
+        }).join('');
+
+    } catch (err) {
+        console.error('loadBrandMargin error:', err);
+        table.innerHTML = `<tr><td colspan="6" class="text-center text-red-500 py-8">Хатолик: ${escapeHtml(err.message)}</td></tr>`;
     }
 }
 

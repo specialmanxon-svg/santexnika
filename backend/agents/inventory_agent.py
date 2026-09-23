@@ -250,6 +250,8 @@ class InventoryAgent:
             # Check low stock (1 to 5 units in stock)
             if 0 < stock_qty <= 5:
                 low_stock_items.append({
+                    "id": p.get("id", p.get("product_id", "")),
+                    "product_id": p.get("id", p.get("product_id", "")),
                     "sku": sku,
                     "name": name,
                     "category": group_name,
