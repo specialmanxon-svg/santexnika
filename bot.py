@@ -949,14 +949,21 @@ async def main():
     print(f"💼 Давомад базаси: diyorgroup.db -> work_timesheets")
     print("=" * 60)
 
+    while True:
+        try:
+            # Eski to'планган хабарларни тозалаб янгиларини олиш
+            await bot.delete_webhook(drop_pending_updates=True)
+            await dp.start_polling(bot, allowed_updates=["message", "callback_query"])
+        except (KeyboardInterrupt, SystemExit):
+            break
+        except Exception as e:
+            logger.error("Бот тармоғида узилиш: %s. 5 сониядан сўнг қайта уланади...", e)
+            await asyncio.sleep(5)
+
     try:
-        # Eski to'планган хабарларни тозалаб янгиларини олиш
-        await bot.delete_webhook(drop_pending_updates=True)
-        await dp.start_polling(bot, allowed_updates=["message", "callback_query"])
-    except Exception as e:
-        print(f"❌ Ботда хатолик: {e}")
-    finally:
         await bot.session.close()
+    except Exception:
+        pass
 
 
 if __name__ == "__main__":
