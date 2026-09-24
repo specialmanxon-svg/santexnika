@@ -122,6 +122,32 @@ async def sync_to_backend_api(payload: dict):
         logger.warning(f"sync_to_backend_api хатоси: {e}")
 
 
+async def sync_task_to_backend_api(payload: dict):
+    """Ходим ёки раҳбарнинг ботдан яратган/янгилаган топшириғини Backend API га узатиш."""
+    targets = []
+    custom = os.getenv("BACKEND_API_URL")
+    if custom and custom.strip():
+        targets.append(custom.strip().rstrip("/"))
+    targets.extend([
+        "https://santexnika.onrender.com/api/v1",
+        "http://127.0.0.1:8000/api/v1"
+    ])
+    try:
+        import httpx
+        for base in targets:
+            endpoint = f"{base}/tasks/sync"
+            try:
+                async with httpx.AsyncClient(timeout=6.0) as client:
+                    res = await client.post(endpoint, json=payload)
+                    if res.status_code in (200, 201):
+                        logger.info(f"✅ Backend API ({base}) га топшириқ #{payload.get('id')} синхронланди")
+                        break
+            except Exception as ex:
+                logger.debug(f"Backend API ({base}) tasks/sync уланиш синови: {ex}")
+    except Exception as e:
+        logger.warning(f"sync_task_to_backend_api хатоси: {e}")
+
+
 async def send_attendance_notification(bot: Bot, text: str):
     """
     2. Умумий давомад назорати (Фақат Раҳбариятга / Каналга / Гуруҳга):
@@ -1055,6 +1081,12 @@ async def handle_task_accept(callback: CallbackQuery):
             task.updated_at = datetime.utcnow()
             await session.commit()
 
+        asyncio.create_task(sync_task_to_backend_api({
+            "id": task.id,
+            "status": task.status,
+            "updated_at": task.updated_at.isoformat() if task.updated_at else None,
+        }))
+
         deadline_str = format_task_deadline(task.deadline)
 
         # Янгиланган хабар
@@ -1116,6 +1148,12 @@ async def handle_task_done(callback: CallbackQuery):
         task.status = "completed"
         task.updated_at = datetime.utcnow()
         await session.commit()
+
+        asyncio.create_task(sync_task_to_backend_api({
+            "id": task.id,
+            "status": "completed",
+            "updated_at": task.updated_at.isoformat() if task.updated_at else None,
+        }))
 
         # Update remaining active tasks count
         stmt_act = select(Task).where(
@@ -1249,6 +1287,13 @@ async def handle_task_response_text(message: types.Message, state: FSMContext):
         task.updated_at = datetime.utcnow()
         await session.commit()
 
+        asyncio.create_task(sync_task_to_backend_api({
+            "id": task.id,
+            "employee_response": task.employee_response,
+            "status": task.status,
+            "updated_at": task.updated_at.isoformat() if task.updated_at else None,
+        }))
+
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [
             InlineKeyboardButton(text="✅ Бажардим", callback_data=f"task_done_{task_id}"),
@@ -1381,6 +1426,23 @@ async def handle_voice_task(message: types.Message):
             await session.commit()
             await session.refresh(task)
 
+            sync_payload = {
+                "id": task.id,
+                "title": task.title,
+                "description": task.description,
+                "creator_name": task.creator_name,
+                "creator_chat_id": task.creator_chat_id,
+                "assigned_to": task.assigned_to,
+                "assigned_name": task.assigned_name,
+                "assigned_telegram_id": task.assigned_telegram_id,
+                "deadline": task.deadline.isoformat() if task.deadline else None,
+                "status": task.status,
+                "voice_url": task.voice_url,
+                "voice_file_id": task.voice_file_id,
+                "created_at": task.created_at.isoformat() if task.created_at else None,
+            }
+            asyncio.create_task(sync_task_to_backend_api(sync_payload))
+
             # Ижрочига овозли хабар ва инлайн тугмаларни юбориш
             if assignee.telegram_id:
                 assignee_kb = InlineKeyboardMarkup(inline_keyboard=[
@@ -1495,6 +1557,21 @@ async def handle_text_task_or_query(message: types.Message, state: FSMContext):
             session.add(task)
             await session.commit()
             await session.refresh(task)
+
+            sync_payload = {
+                "id": task.id,
+                "title": task.title,
+                "description": task.description,
+                "creator_name": task.creator_name,
+                "creator_chat_id": task.creator_chat_id,
+                "assigned_to": task.assigned_to,
+                "assigned_name": task.assigned_name,
+                "assigned_telegram_id": task.assigned_telegram_id,
+                "deadline": task.deadline.isoformat() if task.deadline else None,
+                "status": task.status,
+                "created_at": task.created_at.isoformat() if task.created_at else None,
+            }
+            asyncio.create_task(sync_task_to_backend_api(sync_payload))
 
             # Ижрочига хабар юбориш
             if assignee.telegram_id:

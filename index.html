@@ -897,6 +897,9 @@
         <div class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden mb-6">
             <div class="px-4 py-3 border-b border-gray-200 flex items-center justify-between bg-gray-50">
                 <h3 class="font-semibold text-gray-800">📋 Топшириқлар жадвали</h3>
+                <button class="btn btn-secondary text-xs py-1.5 px-3 flex items-center gap-1.5 hover:bg-gray-200 transition" onclick="loadTasks(currentTaskStatusFilter)">
+                    <span>🔄</span> <span>Янгилаш</span>
+                </button>
             </div>
             <div class="overflow-x-auto">
                 <table>
@@ -4798,17 +4801,39 @@ async function createTask() {
     }
 }
 
-async function loadTasks(statusFilter) {
+let currentTaskStatusFilter = null;
+let tasksPollingInterval = null;
+
+function startTasksAutoPolling() {
+    if (tasksPollingInterval) return;
+    tasksPollingInterval = setInterval(() => {
+        const tasksSection = document.getElementById('tab-tasks');
+        if (tasksSection && !tasksSection.classList.contains('hidden')) {
+            loadTasks(currentTaskStatusFilter, true);
+        }
+    }, 20000);
+}
+
+async function loadTasks(statusFilter, isSilent = false) {
+    if (statusFilter !== undefined) {
+        currentTaskStatusFilter = statusFilter;
+    }
+    startTasksAutoPolling();
+
     const tbody = document.getElementById('tasks-table');
     if (!tbody) return;
-    tbody.innerHTML = '<tr><td colspan="8" class="text-center text-gray-400 py-8"><div class="loader mx-auto"></div> Юкланмоқда...</td></tr>';
+    if (!isSilent || !tbody.children.length || tbody.innerHTML.includes('Маълумотлар юкланмоқда')) {
+        tbody.innerHTML = '<tr><td colspan="8" class="text-center text-gray-400 py-8"><div class="loader mx-auto"></div> Юкланмоқда...</td></tr>';
+    }
 
     let url = '/tasks';
-    if (statusFilter) url += '?status=' + statusFilter;
+    if (currentTaskStatusFilter) url += '?status=' + encodeURIComponent(currentTaskStatusFilter);
 
     const data = await apiFetch(url);
     if (!data || !Array.isArray(data)) {
-        tbody.innerHTML = '<tr><td colspan="8" class="text-center text-gray-400 py-8">Маълумот олинмади</td></tr>';
+        if (!isSilent) {
+            tbody.innerHTML = '<tr><td colspan="8" class="text-center text-gray-400 py-8">Маълумот олинмади</td></tr>';
+        }
         return;
     }
 

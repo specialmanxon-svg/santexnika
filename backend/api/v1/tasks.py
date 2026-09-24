@@ -72,8 +72,8 @@ class TaskOut(BaseModel):
     title_and_description: Optional[str] = None
     creator_name: Optional[str] = None
     creator_chat_id: Optional[int] = None
-    assigned_to: int
-    assigned_name: str
+    assigned_to: Optional[int] = 0
+    assigned_name: Optional[str] = "Ходим"
     assigned_telegram_id: Optional[int] = None
     assignee_name: Optional[str] = None
     assignee_chat_id: Optional[int] = None
@@ -81,13 +81,39 @@ class TaskOut(BaseModel):
     observer_name: Optional[str] = None
     observer_telegram_id: Optional[int] = None
     deadline: Optional[str] = None
-    status: str
+    status: str = "new"
     employee_response: Optional[str] = None
     voice_url: Optional[str] = None
     voice_file_id: Optional[str] = None
     reminder_sent: int = 0
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
+
+
+class TaskSyncItem(BaseModel):
+    id: Optional[int] = None
+    title: str
+    description: Optional[str] = None
+    creator_name: Optional[str] = None
+    creator_chat_id: Optional[int] = None
+    assigned_to: Optional[int] = None
+    assigned_name: Optional[str] = None
+    assigned_telegram_id: Optional[int] = None
+    observer_id: Optional[int] = None
+    observer_name: Optional[str] = None
+    observer_telegram_id: Optional[int] = None
+    deadline: Optional[str] = None
+    status: Optional[str] = "new"
+    employee_response: Optional[str] = None
+    voice_url: Optional[str] = None
+    voice_file_id: Optional[str] = None
+    reminder_sent: Optional[int] = 0
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+
+
+class TaskBulkSync(BaseModel):
+    tasks: List[TaskSyncItem]
 
 
 # ── Helper: Ходим маълумотлари ва Telegram Chat ID олиш ─────────────
@@ -371,21 +397,21 @@ def _task_to_out(t: Task) -> TaskOut:
     """Task ORM → TaskOut Pydantic."""
     return TaskOut(
         id=t.id,
-        title=t.title,
+        title=t.title or "Топшириқ",
         description=t.description,
         title_and_description=f"{t.title}\n{t.description}" if t.description else t.title,
         creator_name=t.creator_name,
         creator_chat_id=t.creator_chat_id,
-        assigned_to=t.assigned_to,
-        assigned_name=t.assigned_name,
+        assigned_to=t.assigned_to or 0,
+        assigned_name=t.assigned_name or "Ходим",
         assigned_telegram_id=t.assigned_telegram_id,
-        assignee_name=t.assigned_name,
+        assignee_name=t.assigned_name or "Ходим",
         assignee_chat_id=t.assigned_telegram_id,
         observer_id=t.observer_id,
         observer_name=t.observer_name,
         observer_telegram_id=t.observer_telegram_id,
         deadline=t.deadline.isoformat() if t.deadline else None,
-        status=t.status,
+        status=t.status or "new",
         employee_response=t.employee_response,
         voice_url=t.voice_url,
         voice_file_id=t.voice_file_id,
@@ -430,9 +456,9 @@ async def _notify_creator_task_completed(task: Task):
 async def list_tasks(
     status: Optional[str] = Query(None, description="Статус фильтри: new, in_progress, completed, expired, overdue"),
 ):
-    """Барча топшириқлар рўйхати (статус бўйича фильтр)."""
+    """Барча топшириқлар рўйхати (статус бўйича фильтр ва сўнгги яратилган тартибда)."""
     async with AsyncSessionLocal() as session:
-        q = select(Task).order_by(desc(Task.created_at))
+        q = select(Task).order_by(desc(Task.created_at), desc(Task.id))
         if status:
             st = status.lower().strip()
             if st == "overdue":
@@ -441,6 +467,117 @@ async def list_tasks(
         result = await session.execute(q)
         tasks = result.scalars().all()
         return [_task_to_out(t) for t in tasks]
+
+
+@router.post("/sync", response_model=TaskOut)
+async def sync_task(data: TaskSyncItem):
+    """
+    Бот ёки бошқа манбадан топшириқни тўғридан-тўғри синхронизация қилиш (Upsert).
+    """
+    async with AsyncSessionLocal() as session:
+        task = None
+        if data.id is not None:
+            task = await session.get(Task, data.id)
+
+        deadline_dt = None
+        if data.deadline:
+            try:
+                deadline_dt = datetime.fromisoformat(data.deadline)
+            except Exception:
+                pass
+
+        created_at_dt = None
+        if data.created_at:
+            try:
+                created_at_dt = datetime.fromisoformat(data.created_at)
+            except Exception:
+                pass
+
+        updated_at_dt = None
+        if data.updated_at:
+            try:
+                updated_at_dt = datetime.fromisoformat(data.updated_at)
+            except Exception:
+                pass
+
+        if not task:
+            task = Task(
+                title=data.title or "Топшириқ",
+                description=data.description,
+                creator_name=data.creator_name or "Раҳбарият",
+                creator_chat_id=data.creator_chat_id,
+                assigned_to=data.assigned_to or 0,
+                assigned_name=data.assigned_name or "Ходим",
+                assigned_telegram_id=data.assigned_telegram_id,
+                observer_id=data.observer_id,
+                observer_name=data.observer_name,
+                observer_telegram_id=data.observer_telegram_id,
+                deadline=deadline_dt,
+                status=data.status or "new",
+                employee_response=data.employee_response,
+                voice_url=data.voice_url,
+                voice_file_id=data.voice_file_id,
+                reminder_sent=data.reminder_sent or 0,
+            )
+            if data.id is not None:
+                task.id = data.id
+            if created_at_dt:
+                task.created_at = created_at_dt
+            if updated_at_dt:
+                task.updated_at = updated_at_dt
+            session.add(task)
+        else:
+            if data.title:
+                task.title = data.title
+            if data.description is not None:
+                task.description = data.description
+            if data.creator_name is not None:
+                task.creator_name = data.creator_name
+            if data.creator_chat_id is not None:
+                task.creator_chat_id = data.creator_chat_id
+            if data.assigned_to is not None:
+                task.assigned_to = data.assigned_to
+            if data.assigned_name is not None:
+                task.assigned_name = data.assigned_name
+            if data.assigned_telegram_id is not None:
+                task.assigned_telegram_id = data.assigned_telegram_id
+            if data.observer_id is not None:
+                task.observer_id = data.observer_id
+            if data.observer_name is not None:
+                task.observer_name = data.observer_name
+            if data.observer_telegram_id is not None:
+                task.observer_telegram_id = data.observer_telegram_id
+            if deadline_dt is not None:
+                task.deadline = deadline_dt
+            if data.status:
+                task.status = data.status
+            if data.employee_response is not None:
+                task.employee_response = data.employee_response
+            if data.voice_url is not None:
+                task.voice_url = data.voice_url
+            if data.voice_file_id is not None:
+                task.voice_file_id = data.voice_file_id
+            if data.reminder_sent is not None:
+                task.reminder_sent = data.reminder_sent
+            if updated_at_dt:
+                task.updated_at = updated_at_dt
+            else:
+                task.updated_at = datetime.utcnow()
+
+        await session.commit()
+        await session.refresh(task)
+        logger.info("task_synced", task_id=task.id, status=task.status)
+        return _task_to_out(task)
+
+
+@router.post("/bulk-sync")
+async def bulk_sync_tasks(data: TaskBulkSync):
+    """Бир нечта топшириқларни синхронизация қилиш."""
+    results = []
+    for item in data.tasks:
+        res = await sync_task(item)
+        results.append(res)
+    return {"synced": len(results), "tasks": results}
 
 
 @router.post("/", response_model=TaskOut, status_code=201)
