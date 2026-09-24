@@ -54,9 +54,11 @@ class Settings(BaseSettings):
     openai_model: str = "gpt-4o"
     
     # Telegram
-    telegram_bot_token: str = Field(default="test_telegram_bot_token")
-    telegram_alert_chat_id: str = Field(default="-1001234567890")
-    telegram_ceo_chat_id: str = Field(default="123456789")
+    telegram_bot_token: str = Field(default=os.getenv("TELEGRAM_BOT_TOKEN", "8859657582:AAE6oCILrzGUOydYSPNdpDckuUy5pcv4gIc"))
+    telegram_alert_chat_id: str = Field(default=os.getenv("TELEGRAM_ALERT_CHAT_ID", "5950380558"))
+    telegram_ceo_chat_id: str = Field(default=os.getenv("TELEGRAM_CEO_CHAT_ID", "5950380558"))
+    admin_chat_id: str = Field(default=os.getenv("ADMIN_CHAT_ID", "5950380558"))
+    management_group_id: str = Field(default=os.getenv("MANAGEMENT_GROUP_ID", ""))
     
     # Security
     secret_key: str = Field(default="super-secret-diyorgroup-key-32chars!")

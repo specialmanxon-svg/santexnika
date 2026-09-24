@@ -150,13 +150,18 @@ async def lifespan(app: FastAPI):
     # Start Telegram Bot polling in background (Render & 24/7 cloud support)
     bot_task = None
     run_bot_env = os.getenv("RUN_TELEGRAM_BOT", "true").lower()
-    if run_bot_env in ("true", "1", "yes") and settings.telegram_bot_token and not settings.telegram_bot_token.startswith("test_"):
-        try:
-            from bot import run_bot_polling
-            bot_task = asyncio.create_task(run_bot_polling())
-            logger.info("telegram_bot_background_task_started")
-        except Exception as be:
-            logger.warning("telegram_bot_start_failed", error=str(be))
+    if run_bot_env in ("true", "1", "yes"):
+        token = getattr(settings, "telegram_bot_token", None) or os.getenv("TELEGRAM_BOT_TOKEN", "8859657582:AAE6oCILrzGUOydYSPNdpDckuUy5pcv4gIc")
+        if token == "test_telegram_bot_token":
+            token = "8859657582:AAE6oCILrzGUOydYSPNdpDckuUy5pcv4gIc"
+            settings.telegram_bot_token = token
+        if token and not token.startswith("test_"):
+            try:
+                from bot import run_bot_polling
+                bot_task = asyncio.create_task(run_bot_polling())
+                logger.info("telegram_bot_background_task_started")
+            except Exception as be:
+                logger.warning("telegram_bot_start_failed", error=str(be))
 
     yield
 

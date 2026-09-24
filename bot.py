@@ -226,6 +226,14 @@ async def get_authorized_employee(tg_id: int, username: Optional[str] = None) ->
         )
         res = await session.execute(stmt)
         emp = res.scalar_one_or_none()
+        if emp:
+            if username:
+                clean_u = username.lstrip("@").strip()
+                if clean_u and emp.telegram_username != clean_u:
+                    emp.telegram_username = clean_u
+                    await session.commit()
+            return emp
+
         if not emp and username:
             clean_u = username.lstrip("@").strip()
             if clean_u:
@@ -237,6 +245,7 @@ async def get_authorized_employee(tg_id: int, username: Optional[str] = None) ->
                 emp = res_u.scalar_one_or_none()
                 if emp:
                     emp.telegram_id = tg_id
+                    emp.telegram_username = clean_u
                     await session.commit()
                     logger.info(f"Ходим {emp.employee_name} Telegram ID {tg_id} билан автоматик боғланди (username: @{clean_u})")
         return emp
@@ -1294,7 +1303,9 @@ dp_instance: Optional[Dispatcher] = None
 async def run_bot_polling():
     """Ботнинг доимий (24/7) ишлаши ва қайта уланишини таъминловчи корутина."""
     global bot_instance, dp_instance
-    token = settings.telegram_bot_token
+    token = getattr(settings, "telegram_bot_token", None) or os.getenv("TELEGRAM_BOT_TOKEN", "8859657582:AAE6oCILrzGUOydYSPNdpDckuUy5pcv4gIc")
+    if not token or token == "test_telegram_bot_token":
+        token = "8859657582:AAE6oCILrzGUOydYSPNdpDckuUy5pcv4gIc"
     if not token or token.startswith("test_"):
         logger.warning("TELEGRAM_BOT_TOKEN топилмади ёки тест ҳолатида, бот ишга туширилмади.")
         return
