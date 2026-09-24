@@ -157,11 +157,15 @@ async def lifespan(app: FastAPI):
             settings.telegram_bot_token = token
         if token and not token.startswith("test_"):
             try:
+                # Add project root to sys.path so bot.py is discoverable
+                proj_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+                if proj_root not in sys.path:
+                    sys.path.insert(0, proj_root)
                 from bot import run_bot_polling
                 bot_task = asyncio.create_task(run_bot_polling())
                 logger.info("telegram_bot_background_task_started")
             except Exception as be:
-                logger.warning("telegram_bot_start_failed", error=str(be))
+                logger.error("telegram_bot_start_failed", error=str(be), exc_info=True)
 
     yield
 

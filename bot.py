@@ -31,6 +31,7 @@ if BACKEND_DIR not in sys.path:
     sys.path.insert(0, BACKEND_DIR)
 
 from aiogram import Bot, Dispatcher, F, types, Router
+from aiogram.exceptions import TelegramConflictError
 from aiogram.filters import Command
 from aiogram.types import (
     ReplyKeyboardMarkup,
