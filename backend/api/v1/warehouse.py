@@ -7,10 +7,14 @@ from pathlib import Path
 from typing import Optional, List, Dict, Any
 from datetime import datetime, timedelta
 
+from io import BytesIO
 from fastapi import APIRouter, HTTPException, Query, Depends
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 import httpx
+import openpyxl
+from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 import structlog
 
 from core.database import get_db, AsyncSessionLocal
@@ -366,6 +370,31 @@ async def full_audit(
     try:
         async with AsyncSessionLocal() as session:
             result = await inventory_agent.audit_inventory_liquidity(session, force_refresh=force_refresh)
+            
+            # 180 кунлик ABC/XYZ матрицасини қўшиш
+            matrix_map = _SALES_180D_CACHE.get("data", {})
+            nl_items = result.get("non_liquid_items", [])
+            for it in nl_items:
+                pid = it.get("id") or it.get("product_id") or ""
+                mat = matrix_map.get(pid)
+                if mat:
+                    it["matrix_category"] = mat.get("matrix_category")
+                    it["abc"] = mat.get("abc")
+                    it["xyz"] = mat.get("xyz")
+                elif not it.get("matrix_category"):
+                    it["matrix_category"] = f"{it.get('abc', 'C')}{it.get('xyz', 'Z')}"
+
+            ls_items = result.get("low_stock_items", [])
+            for it in ls_items:
+                pid = it.get("id") or it.get("product_id") or ""
+                mat = matrix_map.get(pid)
+                if mat:
+                    it["matrix_category"] = mat.get("matrix_category")
+                    it["abc"] = mat.get("abc")
+                    it["xyz"] = mat.get("xyz")
+                elif not it.get("matrix_category"):
+                    it["matrix_category"] = f"{it.get('abc', 'B')}{it.get('xyz', 'X')}"
+
             return {
                 "status": "success",
                 "total_products": result.get("total_products", 0),
@@ -374,8 +403,8 @@ async def full_audit(
                 "frozen_capital_usd": result.get("frozen_capital_usd", 0.0),
                 "low_stock_count": result.get("low_stock_count", 0),
                 "available_brands": result.get("available_brands", []),
-                "non_liquid_items": result.get("non_liquid_items", []),
-                "low_stock_items": result.get("low_stock_items", []),
+                "non_liquid_items": nl_items,
+                "low_stock_items": ls_items,
                 "groups": result.get("groups", [])
             }
     except Exception as e:
@@ -388,17 +417,116 @@ async def get_non_liquid():
     try:
         async with AsyncSessionLocal() as session:
             result = await inventory_agent.audit_inventory_liquidity(session, force_refresh=False)
+            matrix_map = _SALES_180D_CACHE.get("data", {})
+            nl_items = result.get("non_liquid_items", [])
+            for it in nl_items:
+                pid = it.get("id") or it.get("product_id") or ""
+                mat = matrix_map.get(pid)
+                if mat:
+                    it["matrix_category"] = mat.get("matrix_category")
+                elif not it.get("matrix_category"):
+                    it["matrix_category"] = f"{it.get('abc', 'C')}{it.get('xyz', 'Z')}"
             return {
                 "total_products": result.get("total_products", 0),
                 "non_liquid_count": result.get("non_liquid_count", 0),
                 "frozen_capital": result.get("frozen_capital", 0.0),
                 "frozen_capital_usd": result.get("frozen_capital_usd", 0.0),
                 "available_brands": result.get("available_brands", []),
-                "items": result.get("non_liquid_items", []),
+                "items": nl_items,
                 "groups": result.get("groups", [])
             }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/export-non-liquid-excel", summary="Ноликвид товарлар рўйхатини Excel (.xlsx) форматида юклаш")
+async def export_non_liquid_excel():
+    """
+    МойСклад базасидаги барча 90+ кунлик ноликвид товарлар рўйхатини
+    профессионал форматланган Excel (.xlsx) файли кўринишида қайтаради.
+    """
+    try:
+        cached_audit = _INVENTORY_AUDIT_CACHE.get("data") or {}
+        items = cached_audit.get("non_liquid_items", [])
+        if not items:
+            async with AsyncSessionLocal() as session:
+                result = await inventory_agent.audit_inventory_liquidity(session, force_refresh=False)
+                items = result.get("non_liquid_items", [])
+
+        matrix_map = _SALES_180D_CACHE.get("data", {})
+
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "Ноликвид товарлар"
+
+        # Сарлавҳа стили (Diyor Group blue)
+        header_fill = PatternFill(start_color="1E3A8A", end_color="1E3A8A", fill_type="solid")
+        header_font = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
+        border_thin = Border(
+            left=Side(style='thin', color='CBD5E1'),
+            right=Side(style='thin', color='CBD5E1'),
+            top=Side(style='thin', color='CBD5E1'),
+            bottom=Side(style='thin', color='CBD5E1')
+        )
+
+        headers = [
+            "№", "Товар номи", "Артикул (SKU)", "Бренд", "Гуруҳи",
+            "ABC/XYZ тоифаси", "Қолдиқ (дона)", "Кунлар", "Музлаган суммаси (сўм)"
+        ]
+        ws.append(headers)
+        for col_idx in range(1, len(headers) + 1):
+            cell = ws.cell(row=1, column=col_idx)
+            cell.fill = header_fill
+            cell.font = header_font
+            cell.alignment = Alignment(horizontal="center", vertical="center")
+
+        row_font = Font(name="Calibri", size=10)
+        for idx, it in enumerate(items, 1):
+            pid = it.get("id") or it.get("product_id") or ""
+            mat = matrix_map.get(pid)
+            mat_cat = mat.get("matrix_category") if mat else it.get("matrix_category") or f"{it.get('abc', 'C')}{it.get('xyz', 'Z')}"
+            frozen_sum = float(it.get("frozen_value") or it.get("cost_uzs") or ((it.get("stock_qty") or 0) * (it.get("buy_price") or 0)))
+
+            row_vals = [
+                idx,
+                it.get("name", "—"),
+                it.get("sku", "—"),
+                it.get("brand", "—"),
+                it.get("category", it.get("path_name", "Сантехника")),
+                mat_cat.upper(),
+                float(it.get("stock_qty", 0)),
+                f"{it.get('days_in_stock', 90)}+ кун",
+                frozen_sum
+            ]
+            ws.append(row_vals)
+            cur_row = idx + 1
+            for col_idx in range(1, len(row_vals) + 1):
+                cell = ws.cell(row=cur_row, column=col_idx)
+                cell.font = row_font
+                cell.border = border_thin
+                if col_idx in [1, 6, 8]:
+                    cell.alignment = Alignment(horizontal="center")
+                elif col_idx in [7, 9]:
+                    cell.alignment = Alignment(horizontal="right")
+                    if col_idx == 9:
+                        cell.number_format = '#,##0'
+
+        col_widths = {1: 6, 2: 45, 3: 15, 4: 15, 5: 25, 6: 16, 7: 14, 8: 14, 9: 22}
+        for col_idx, width in col_widths.items():
+            ws.column_dimensions[openpyxl.utils.get_column_letter(col_idx)].width = width
+
+        buffer = BytesIO()
+        wb.save(buffer)
+        buffer.seek(0)
+
+        filename = f"non_liquid_products_diyor_{datetime.now().strftime('%Y%m%d')}.xlsx"
+        return StreamingResponse(
+            buffer,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": f"attachment; filename={filename}"}
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Excel генерациясида хатолик: {str(e)}")
 
 
 @router.get("/low-stock")
