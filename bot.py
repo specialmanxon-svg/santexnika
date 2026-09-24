@@ -728,7 +728,8 @@ async def handle_location(message: types.Message, state: FSMContext):
 
 # ═══════════════ ТОПШИРИҚЛАР БЎЛИМИ (TASK MANAGER) ═══════════════
 
-@router.message(Command("tasks") | F.text.contains("Менинг топшириқларим"))
+@router.message(Command("tasks"))
+@router.message(F.text.contains("Менинг топшириқларим"))
 async def cmd_tasks(message: types.Message):
     """Ходимнинг фаол топшириқлари рўйхати."""
     emp = await get_authorized_employee(message.from_user.id, message.from_user.username)
