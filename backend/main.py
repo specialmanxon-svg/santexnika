@@ -1,11 +1,15 @@
+import os
 import sys
 import asyncio
 from pathlib import Path
 
-# Ensure backend directory is in sys.path for Render and local deployments
+# Ensure backend directory and root directory are in sys.path for Render and local deployments
 _BACKEND_DIR = Path(__file__).resolve().parent
+_ROOT_DIR = _BACKEND_DIR.parent
 if str(_BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(_BACKEND_DIR))
+if str(_ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(_ROOT_DIR))
 
 import structlog
 from contextlib import asynccontextmanager
@@ -143,11 +147,24 @@ async def lifespan(app: FastAPI):
     from workers.task_worker import start_task_reminder_loop
     task_reminder_task = asyncio.create_task(start_task_reminder_loop())
 
+    # Start Telegram Bot polling in background (Render & 24/7 cloud support)
+    bot_task = None
+    run_bot_env = os.getenv("RUN_TELEGRAM_BOT", "true").lower()
+    if run_bot_env in ("true", "1", "yes") and settings.telegram_bot_token and not settings.telegram_bot_token.startswith("test_"):
+        try:
+            from bot import run_bot_polling
+            bot_task = asyncio.create_task(run_bot_polling())
+            logger.info("telegram_bot_background_task_started")
+        except Exception as be:
+            logger.warning("telegram_bot_start_failed", error=str(be))
+
     yield
 
     logger.info("application_shutting_down")
     monitor_task.cancel()
     task_reminder_task.cancel()
+    if bot_task:
+        bot_task.cancel()
     try:
         await monitor_task
     except asyncio.CancelledError:
@@ -160,6 +177,13 @@ async def lifespan(app: FastAPI):
         pass
     except Exception:
         pass
+    if bot_task:
+        try:
+            await bot_task
+        except asyncio.CancelledError:
+            pass
+        except Exception:
+            pass
 
     try:
         await engine.dispose()

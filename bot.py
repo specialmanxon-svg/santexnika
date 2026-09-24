@@ -169,21 +169,25 @@ def get_auth_keyboard() -> ReplyKeyboardMarkup:
     """Telefon raqamini yuborish tugmasi."""
     return ReplyKeyboardMarkup(
         keyboard=[
-            [KeyboardButton(text="📱 Телефон рақамимни юбориш", request_contact=True)]
+            [KeyboardButton(text="📱 Телефон рақамни юбориш", request_contact=True)]
         ],
         resize_keyboard=True,
         one_time_keyboard=True,
-        input_field_placeholder="«Телефон рақамимни юбориш» тугмасини босинг..."
+        input_field_placeholder="«Телефон рақамни юбориш» тугмасини босинг..."
     )
 
 
 def get_main_keyboard() -> ReplyKeyboardMarkup:
-    """Тасдиқланган ходим учун доимий асосий меню."""
+    """Тасдиқланган ходим учун доимий асосий 4 талик меню."""
     return ReplyKeyboardMarkup(
         keyboard=[
             [
-                KeyboardButton(text="🟢 Ишга келдим (GPS)"),
-                KeyboardButton(text="🔴 Ишдан кетдим (GPS)")
+                KeyboardButton(text="📍 Ишга келиш"),
+                KeyboardButton(text="🏁 Ишдан кетиш")
+            ],
+            [
+                KeyboardButton(text="📋 Менинг топшириқларим"),
+                KeyboardButton(text="➕ Янги топшириқ")
             ]
         ],
         resize_keyboard=True
@@ -213,15 +217,29 @@ class TaskStates(StatesGroup):
 
 # ═══════════════ BAZA VA MOYSKLAD QIDIRUVLARI ═══════════════
 
-async def get_authorized_employee(tg_id: int) -> Optional[AuthorizedEmployee]:
-    """Telegram ID bo'yicha tasdiqlangan faol xodimni olish."""
+async def get_authorized_employee(tg_id: int, username: Optional[str] = None) -> Optional[AuthorizedEmployee]:
+    """Telegram ID yoki username bo'yicha tasdiqlangan faol xodimni olish."""
     async with AsyncSessionLocal() as session:
         stmt = select(AuthorizedEmployee).where(
             AuthorizedEmployee.telegram_id == tg_id,
             AuthorizedEmployee.is_active == 1
         )
         res = await session.execute(stmt)
-        return res.scalar_one_or_none()
+        emp = res.scalar_one_or_none()
+        if not emp and username:
+            clean_u = username.lstrip("@").strip()
+            if clean_u:
+                stmt_u = select(AuthorizedEmployee).where(
+                    AuthorizedEmployee.telegram_username.ilike(clean_u),
+                    AuthorizedEmployee.is_active == 1
+                )
+                res_u = await session.execute(stmt_u)
+                emp = res_u.scalar_one_or_none()
+                if emp:
+                    emp.telegram_id = tg_id
+                    await session.commit()
+                    logger.info(f"Ходим {emp.employee_name} Telegram ID {tg_id} билан автоматик боғланди (username: @{clean_u})")
+        return emp
 
 
 async def find_employee_by_phone(raw_phone: str) -> Optional[Dict[str, Any]]:
@@ -319,8 +337,10 @@ router = Router()
 async def cmd_start(message: types.Message, state: FSMContext):
     """
     /start buyrug'i:
-    - Foydalanuvchi tasdiqlangan bo'lsa: Asosiy 2 ta GPS menyusini ko'rsatadi.
-    - Tasdiqlanmagan bo'lsa: «📱 Телефон рақамимни юбориш» tugmasini chiqaradi.
+    - Foydalanuvchi tasdiqlangan bo'lsa: Asosiy 4 ta menyuni ko'rsatadi:
+      [ 📍 Ишга келиш ] [ 🏁 Ишдан кетиш ]
+      [ 📋 Менинг топшириқларим ] [ ➕ Янги топшириқ ]
+    - Tasdiqlanmagan bo'lsa: «📱 Телефон рақамни юбориш» tugmasini chiqaradi.
     """
     await state.clear()
 
@@ -339,19 +359,20 @@ async def cmd_start(message: types.Message, state: FSMContext):
         return
 
     # Xodim avtorizatsiyasini tekshirish
-    emp = await get_authorized_employee(message.from_user.id)
+    emp = await get_authorized_employee(message.from_user.id, message.from_user.username)
 
     if emp:
         welcome_text = (
             f"👋 <b>Ассалому алайкум, {emp.employee_name}!</b>\n\n"
             f"🏢 <b>Diyor Group</b> — Сиз тизимда тасдиқлангансиз.\n\n"
-            f"Ишга келиш ва кетишингизни белгилаш учун қуйидаги тугмалардан фойдаланинг:"
+            f"Қуйидаги меню орқали ишга келиш/кетишни белгилашингиз ва топшириқлар билан ишлашингиз мумкин:"
         )
         await message.answer(welcome_text, reply_markup=get_main_keyboard(), parse_mode="HTML")
     else:
         auth_prompt = (
-            f"Ассалому алайкум! Diyor Group тизимига хуш келибсиз.\n\n"
-            f"Шахсингизни тасдиқлаш ва иш жойингизни белгилаш учун телефон рақамингизни юборинг."
+            f"👋 <b>Ассалому алайкум! Diyor Group тизимига хуш келибсиз.</b>\n\n"
+            f"Шахсингизни тасдиқлаш ва тизимдан фойдаланиш учун илтимос, "
+            f"пастдаги «📱 Телефон рақамни юбориш» тугмасини босинг."
         )
         await message.answer(auth_prompt, reply_markup=get_auth_keyboard(), parse_mode="HTML")
 
@@ -404,10 +425,10 @@ async def handle_text_phone(message: types.Message):
         await message.answer(reject_text, reply_markup=get_auth_keyboard(), parse_mode="HTML")
 
 
-@router.message(F.text.contains("Ишга келдим") | (F.text == "🟢 Ишга келдим (GPS)"))
+@router.message(F.text.contains("Ишга келиш") | F.text.contains("Ишга келдим"))
 async def btn_checkin(message: types.Message, state: FSMContext):
     """Ишга келиш GPS сўрови."""
-    emp = await get_authorized_employee(message.from_user.id)
+    emp = await get_authorized_employee(message.from_user.id, message.from_user.username)
     if not emp:
         await message.answer(
             "Ассалому алайкум! Diyor Group тизимига хуш келибсиз.\n"
@@ -427,10 +448,10 @@ async def btn_checkin(message: types.Message, state: FSMContext):
     await message.answer(prompt, reply_markup=get_location_keyboard(), parse_mode="HTML")
 
 
-@router.message(F.text.contains("Ишдан кетдим") | (F.text == "🔴 Ишдан кетдим (GPS)"))
+@router.message(F.text.contains("Ишдан кетиш") | F.text.contains("Ишдан кетдим"))
 async def btn_checkout(message: types.Message, state: FSMContext):
     """Ишдан кетиш GPS сўрови."""
-    emp = await get_authorized_employee(message.from_user.id)
+    emp = await get_authorized_employee(message.from_user.id, message.from_user.username)
     if not emp:
         await message.answer(
             "Ассалому алайкум! Diyor Group тизимига хуш келибсиз.\n"
@@ -454,7 +475,7 @@ async def btn_checkout(message: types.Message, state: FSMContext):
 async def btn_cancel(message: types.Message, state: FSMContext):
     """Амални бекор қилиш."""
     await state.clear()
-    emp = await get_authorized_employee(message.from_user.id)
+    emp = await get_authorized_employee(message.from_user.id, message.from_user.username)
     kb = get_main_keyboard() if emp else get_auth_keyboard()
     await message.answer("❌ Амал бекор қилинди.", reply_markup=kb)
 
@@ -698,10 +719,10 @@ async def handle_location(message: types.Message, state: FSMContext):
 
 # ═══════════════ ТОПШИРИҚЛАР БЎЛИМИ (TASK MANAGER) ═══════════════
 
-@router.message(Command("tasks"))
+@router.message(Command("tasks") | F.text.contains("Менинг топшириқларим"))
 async def cmd_tasks(message: types.Message):
     """Ходимнинг фаол топшириқлари рўйхати."""
-    emp = await get_authorized_employee(message.from_user.id)
+    emp = await get_authorized_employee(message.from_user.id, message.from_user.username)
     if not emp:
         await message.answer(
             "⚠️ <b>Сиз ҳали авторизациядан ўтмагансиз!</b>\n"
@@ -759,6 +780,34 @@ async def cmd_tasks(message: types.Message):
         reply_markup=keyboard,
         parse_mode="HTML"
     )
+
+
+@router.message(F.text.contains("Янги топшириқ"))
+async def btn_new_task(message: types.Message):
+    """Янги топшириқ тугмаси босилганда йўриқнома ва имкониятларни кўрсатиш."""
+    emp = await get_authorized_employee(message.from_user.id, message.from_user.username)
+    if not emp:
+        await message.answer(
+            "⚠️ <b>Сиз ҳали авторизациядан ўтмагансиз!</b>\n"
+            "Илтимос, аввал телефон рақамингизни юбориб шахсингизни тасдиқланг.",
+            reply_markup=get_auth_keyboard(),
+            parse_mode="HTML"
+        )
+        return
+
+    text = (
+        "➕ <b>Янги топшириқ яратиш бўйича кўрсатма</b>\n\n"
+        "Сиз ходимларга топшириқни 2 хил тезкор усулда юборишингиз мумкин:\n\n"
+        "1. 🎙 <b>Овозли хабар (Voice) орқали:</b>\n"
+        "Telegram микрофонини босиб, ходим исми ва вазифасини гапиринг. Масалан:\n"
+        "<i>«Латипов, дўкондаги қолдиқларни санаб чиқинг, соат 18:00 гача»</i>\n"
+        "ИИ тизими автоматик равишда ижрочини ва муддатни аниқлайди ҳамда топшириқ яратади.\n\n"
+        "2. ✍️ <b>Матнли хабар орқали:</b>\n"
+        "Шунчаки ёзма хабар юборинг. Масалан:\n"
+        "<i>«Каххоров, омбордаги янги партияни қабул қилинг»</i>\n\n"
+        "🌐 <a href='https://santexnika.onrender.com/dashboard#tasks'>Дашбордда кўриш ва бошқариш</a>"
+    )
+    await message.answer(text, reply_markup=get_main_keyboard(), parse_mode="HTML")
 
 
 @router.callback_query(F.data.startswith("task_accept_"))
@@ -1132,7 +1181,17 @@ async def handle_voice_task(message: types.Message):
         await wait_msg.edit_text(f"❌ Овозли топшириқ яратишда хатолик юз берди: {e}")
 
 
-@router.message(F.text & ~F.text.startswith("/") & ~F.text.contains("Ишга келдим") & ~F.text.contains("Ишдан кетдим") & ~F.text.contains("Бекор қилиш"))
+@router.message(
+    F.text 
+    & ~F.text.startswith("/") 
+    & ~F.text.contains("Ишга келиш") 
+    & ~F.text.contains("Ишга келдим") 
+    & ~F.text.contains("Ишдан кетиш") 
+    & ~F.text.contains("Ишдан кетдим") 
+    & ~F.text.contains("Менинг топшириқларим")
+    & ~F.text.contains("Янги топшириқ")
+    & ~F.text.contains("Бекор қилиш")
+)
 async def handle_text_task_or_query(message: types.Message, state: FSMContext):
     """
     Раҳбар ёки ходим матнли топшириқ юборганда:
@@ -1162,7 +1221,7 @@ async def handle_text_task_or_query(message: types.Message, state: FSMContext):
             if not assignee:
                 return
 
-            emp = await get_authorized_employee(message.from_user.id)
+            emp = await get_authorized_employee(message.from_user.id, message.from_user.username)
             creator_name = emp.employee_name if emp else (message.from_user.full_name or "Раҳбарият")
 
             task_title = parsed["task_text"][:250] if parsed["task_text"] else text[:250]
@@ -1229,59 +1288,83 @@ async def handle_text_task_or_query(message: types.Message, state: FSMContext):
 
 # ═══════════════ ASOSIY ISHGA TUSHIRISH FUNKSIYASI ═══════════════
 
-async def main():
+bot_instance: Optional[Bot] = None
+dp_instance: Optional[Dispatcher] = None
+
+async def run_bot_polling():
+    """Ботнинг доимий (24/7) ишлаши ва қайта уланишини таъминловчи корутина."""
+    global bot_instance, dp_instance
     token = settings.telegram_bot_token
     if not token or token.startswith("test_"):
-        print("❌ TELEGRAM_BOT_TOKEN топилмади ёки тест ҳолатида!")
+        logger.warning("TELEGRAM_BOT_TOKEN топилмади ёки тест ҳолатида, бот ишга туширилмади.")
         return
 
+    from aiogram.exceptions import TelegramConflictError
+
     # Ma'lumotlar bazasi jadvallarini tekshirish va ustunlarni avto-yangilash
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-        def _migrate_tasks_cols(sync_conn):
-            try:
-                cursor = sync_conn.connection.cursor()
-                cursor.execute("PRAGMA table_info(tasks);")
-                cols = {row[1] for row in cursor.fetchall()}
-                if cols:
-                    if "creator_name" not in cols:
-                        cursor.execute("ALTER TABLE tasks ADD COLUMN creator_name VARCHAR(255);")
-                    if "creator_chat_id" not in cols:
-                        cursor.execute("ALTER TABLE tasks ADD COLUMN creator_chat_id BIGINT;")
-                    if "voice_file_id" not in cols:
-                        cursor.execute("ALTER TABLE tasks ADD COLUMN voice_file_id VARCHAR(255);")
-                    if "voice_url" not in cols:
-                        cursor.execute("ALTER TABLE tasks ADD COLUMN voice_url VARCHAR(500);")
-            except Exception as ex:
-                logger.warning(f"tasks columns migration warning: {ex}")
-        await conn.run_sync(_migrate_tasks_cols)
+    try:
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+            def _migrate_tasks_cols(sync_conn):
+                try:
+                    cursor = sync_conn.connection.cursor()
+                    cursor.execute("PRAGMA table_info(tasks);")
+                    cols = {row[1] for row in cursor.fetchall()}
+                    if cols:
+                        if "creator_name" not in cols:
+                            cursor.execute("ALTER TABLE tasks ADD COLUMN creator_name VARCHAR(255);")
+                        if "creator_chat_id" not in cols:
+                            cursor.execute("ALTER TABLE tasks ADD COLUMN creator_chat_id BIGINT;")
+                        if "voice_file_id" not in cols:
+                            cursor.execute("ALTER TABLE tasks ADD COLUMN voice_file_id VARCHAR(255);")
+                        if "voice_url" not in cols:
+                            cursor.execute("ALTER TABLE tasks ADD COLUMN voice_url VARCHAR(500);")
+                except Exception as ex:
+                    logger.warning(f"tasks columns migration warning: {ex}")
+            await conn.run_sync(_migrate_tasks_cols)
+    except Exception as dbe:
+        logger.warning(f"Database schema migration warning: {dbe}")
 
-    bot = Bot(token=token)
-    dp = Dispatcher(storage=MemoryStorage())
-    dp.include_router(router)
+    bot_instance = Bot(token=token)
+    dp_instance = Dispatcher(storage=MemoryStorage())
+    dp_instance.include_router(router)
 
-    me = await bot.get_me()
-    print("=" * 60)
-    print(f"🤖 Diyor Group Telegram Bot ишга тушди: @{me.username} ({me.full_name})")
-    print(f"📡 Шахсий чатларда /start ва телефон тасдиғини кутмоқда...")
-    print(f"💼 Давомад базаси: diyorgroup.db -> work_timesheets")
-    print("=" * 60)
+    try:
+        me = await bot_instance.get_me()
+        logger.info(f"🤖 Diyor Group Telegram Bot ишга тушди: @{me.username} ({me.full_name})")
+    except Exception as e:
+        logger.error(f"Бот маълумотларини олишда хатолик: {e}")
 
+    backoff = 5
     while True:
         try:
-            # Eski to'планган хабарларни тозалаб янгиларини олиш
-            await bot.delete_webhook(drop_pending_updates=True)
-            await dp.start_polling(bot, allowed_updates=["message", "callback_query"])
+            # drop_pending_updates=False: ходимларнинг юборган /start ёки топшириқлари йўқолмайди!
+            await bot_instance.delete_webhook(drop_pending_updates=False)
+            logger.info("📡 Telegram Bot polling бошланди...")
+            await dp_instance.start_polling(bot_instance, allowed_updates=["message", "callback_query"])
+            backoff = 5
+        except asyncio.CancelledError:
+            logger.info("🛑 Telegram Bot вазифаси бекор қилинди (Cancelled).")
+            break
+        except TelegramConflictError:
+            logger.warning("⚠️ ConflictError: Бот бошқа сессияда (бошқа сервер ёки тест жараёнида) polling қилмоқда. 25 сония кутилмоқда...")
+            await asyncio.sleep(25)
         except (KeyboardInterrupt, SystemExit):
             break
         except Exception as e:
-            logger.error("Бот тармоғида узилиш: %s. 5 сониядан сўнг қайта уланади...", e)
-            await asyncio.sleep(5)
+            logger.error(f"Бот тармоғида узилиш: {e}. {backoff} сониядан сўнг қайта уланади...")
+            await asyncio.sleep(backoff)
+            backoff = min(backoff * 2, 60)
 
     try:
-        await bot.session.close()
+        if bot_instance and bot_instance.session:
+            await bot_instance.session.close()
     except Exception:
         pass
+
+
+async def main():
+    await run_bot_polling()
 
 
 if __name__ == "__main__":
