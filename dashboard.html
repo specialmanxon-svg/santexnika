@@ -1618,7 +1618,7 @@ function fmt(n) {
     return Math.round(n).toLocaleString('ru-RU').replace(/,/g, ' ');
 }
 
-async function apiFetch(url, timeoutMs = 10000) {
+async function apiFetch(url, timeoutMs = 45000) {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
     try {
@@ -1637,7 +1637,7 @@ async function apiFetch(url, timeoutMs = 10000) {
     }
 }
 
-async function apiPost(url, body = {}, timeoutMs = 12000) {
+async function apiPost(url, body = {}, timeoutMs = 45000) {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
     try {
@@ -3374,7 +3374,7 @@ async function loadCashFlow(forceRefresh = false) {
     try {
         const q = DateFilter.getQueryParams();
         const url = `/finance/cashflow-summary?${q}${forceRefresh ? '&force_refresh=true' : ''}`;
-        const data = await apiFetch(url);
+        const data = await apiFetch(url, 45000);
 
         if (!data || data.status === 'error') {
             if (cfTable) {
@@ -3439,7 +3439,7 @@ async function loadExpensesByCategory(forceRefresh = false) {
     try {
         const q = DateFilter.getQueryParams();
         const url = `/finance/expenses-by-category?${q}${forceRefresh ? '&force_refresh=true' : ''}`;
-        const data = await apiFetch(url);
+        const data = await apiFetch(url, 45000);
 
         if (!data || !Array.isArray(data) || data.length === 0) {
             if (badge) badge.textContent = 'Жами чиқим: 0 сўм';
@@ -3511,7 +3511,7 @@ async function loadBrandMargin(forceRefresh = false) {
     try {
         const q = DateFilter.getQueryParams();
         const url = `/finance/brand-margin?${q}${forceRefresh ? '&force_refresh=true' : ''}`;
-        const data = await apiFetch(url);
+        const data = await apiFetch(url, 45000);
 
         if (!data || !Array.isArray(data) || data.length === 0) {
             if (badge) badge.textContent = '0 та бренд';

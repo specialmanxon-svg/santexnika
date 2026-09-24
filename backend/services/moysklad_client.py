@@ -34,7 +34,7 @@ class MoySkladClient:
         else:
             self.auth_type = "None"
             
-        timeout_config = httpx.Timeout(15.0, connect=10.0)
+        timeout_config = httpx.Timeout(25.0, connect=10.0)
         self.client = httpx.AsyncClient(
             headers=headers,
             timeout=timeout_config,

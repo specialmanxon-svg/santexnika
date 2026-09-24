@@ -233,54 +233,54 @@ class CashFlowService:
         # Batch fetch missing product attributes from MoySklad (capped to prevent timeouts)
         if missing_pids:
             chunk_size = 50
-            for i in range(0, min(len(missing_pids), 100), chunk_size):
-                chunk = missing_pids[i:i + chunk_size]
-                filter_str = ";".join([f"id={x}" for x in chunk if x])
-                if not filter_str:
+            chunks = [missing_pids[i:i + chunk_size] for i in range(0, min(len(missing_pids), 100), chunk_size)]
+            tasks = [
+                self.ms_client.get("/entity/product", params={"filter": ";".join([f"id={x}" for x in c if x])})
+                for c in chunks if c
+            ]
+            batch_results = await asyncio.gather(*tasks, return_exceptions=True)
+            for res in batch_results:
+                if not isinstance(res, dict):
                     continue
-                try:
-                    res = await self.ms_client.get("/entity/product", params={"filter": filter_str})
-                    for prod in res.get("rows", []):
-                        prod_id = prod.get("id")
-                        detected = None
+                for prod in res.get("rows", []):
+                    prod_id = prod.get("id")
+                    detected = None
 
-                        # 1. Check custom attribute 'Бренд товара' or 'Бренд'
-                        for a in prod.get("attributes", []):
-                            if "бренд" in a.get("name", "").lower():
-                                val = a.get("value")
-                                if isinstance(val, dict):
-                                    detected = val.get("name")
-                                elif val:
-                                    detected = str(val)
-                                if detected:
+                    # 1. Check custom attribute 'Бренд товара' or 'Бренд'
+                    for a in prod.get("attributes", []):
+                        if "бренд" in a.get("name", "").lower():
+                            val = a.get("value")
+                            if isinstance(val, dict):
+                                detected = val.get("name")
+                            elif val:
+                                detected = str(val)
+                            if detected:
+                                break
+
+                    # 2. Check pathName / productFolder
+                    if not detected:
+                        path = prod.get("pathName", "")
+                        if path:
+                            parts = [x.strip() for x in path.split("/") if x.strip()]
+                            for part in parts:
+                                if part.lower() not in ["сантехника", "строй материаль", "остаток товар база"]:
+                                    detected = part
                                     break
 
-                        # 2. Check pathName / productFolder
-                        if not detected:
-                            path = prod.get("pathName", "")
-                            if path:
-                                parts = [x.strip() for x in path.split("/") if x.strip()]
-                                for part in parts:
-                                    if part.lower() not in ["сантехника", "строй материаль", "остаток товар база"]:
-                                        detected = part
-                                        break
-
-                        # 3. Check product name against known brand keywords
-                        if not detected:
-                            name_upper = prod.get("name", "").upper()
-                            for brand_label, keywords in COMMON_BRAND_KEYWORDS:
-                                for kw in keywords:
-                                    if re.search(r'\b' + re.escape(kw) + r'\b', name_upper):
-                                        detected = brand_label
-                                        break
-                                if detected:
+                    # 3. Check product name against known brand keywords
+                    if not detected:
+                        name_upper = prod.get("name", "").upper()
+                        for brand_label, keywords in COMMON_BRAND_KEYWORDS:
+                            for kw in keywords:
+                                if re.search(r'\b' + re.escape(kw) + r'\b', name_upper):
+                                    detected = brand_label
                                     break
+                            if detected:
+                                break
 
-                        final_brand = normalize_brand(detected or "Бошқа брендлар")
-                        self._product_brand_cache[prod_id] = final_brand
-                        result[prod_id] = final_brand
-                except Exception as e:
-                    logger.warning("failed_to_batch_fetch_products_brand", error=str(e))
+                    final_brand = normalize_brand(detected or "Бошқа брендлар")
+                    self._product_brand_cache[prod_id] = final_brand
+                    result[prod_id] = final_brand
 
         # Any still unassigned
         for p in products_info:
@@ -302,6 +302,21 @@ class CashFlowService:
                 result[pid] = final_brand
 
         return result
+
+    async def _fetch_profit_report(self, date_from: str, date_to: str) -> List[dict]:
+        """Fetch byproduct profit report from MoySklad."""
+        profit_params = {
+            "momentFrom": f"{date_from} 00:00:00",
+            "limit": 1000
+        }
+        if date_to:
+            profit_params["momentTo"] = f"{date_to} 23:59:59"
+        try:
+            profit_data = await self.ms_client.get("/report/profit/byproduct", params=profit_params)
+            return profit_data.get("rows", [])
+        except Exception as e:
+            logger.warning("failed_to_fetch_profit_byproduct", error=str(e))
+            return []
 
     async def _fetch_payments_entity(self, entity: str, date_from: Optional[str] = None, date_to: Optional[str] = None) -> List[dict]:
         """Fetch payment or cash entity with date filtering and pagination."""
@@ -355,12 +370,13 @@ class CashFlowService:
         logger.info("fetching_cashflow_summary", date_from=date_from, date_to=date_to, force_refresh=force_refresh)
 
         try:
-            # 1. Fetch categories map & 4 payment entities in parallel
+            # 1. Fetch categories map, 4 payment entities, AND profit report all concurrently in parallel!
             cat_map_task = self._get_category_map()
             p_in_task = self._fetch_payments_entity("paymentin", date_from, date_to)
             c_in_task = self._fetch_payments_entity("cashin", date_from, date_to)
             p_out_task = self._fetch_payments_entity("paymentout", date_from, date_to)
             c_out_task = self._fetch_payments_entity("cashout", date_from, date_to)
+            profit_task = self._fetch_profit_report(date_from, date_to)
 
             gathered_results = await asyncio.gather(
                 cat_map_task,
@@ -368,6 +384,7 @@ class CashFlowService:
                 c_in_task,
                 p_out_task,
                 c_out_task,
+                profit_task,
                 return_exceptions=True
             )
 
@@ -376,21 +393,7 @@ class CashFlowService:
             cash_in = gathered_results[2] if isinstance(gathered_results[2], list) else []
             payment_out = gathered_results[3] if isinstance(gathered_results[3], list) else []
             cash_out = gathered_results[4] if isinstance(gathered_results[4], list) else []
-
-            # 2. Fetch sales profitability report from MoySklad
-            profit_params = {
-                "momentFrom": f"{date_from} 00:00:00",
-                "limit": 1000
-            }
-            if date_to:
-                profit_params["momentTo"] = f"{date_to} 23:59:59"
-
-            profit_rows = []
-            try:
-                profit_data = await self.ms_client.get("/report/profit/byproduct", params=profit_params)
-                profit_rows = profit_data.get("rows", [])
-            except Exception as e:
-                logger.warning("failed_to_fetch_profit_byproduct", error=str(e))
+            profit_rows = gathered_results[5] if isinstance(gathered_results[5], list) else []
 
             # 3. Aggregate daily flows
             daily_totals: Dict[str, Dict[str, float]] = {}
