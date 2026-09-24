@@ -34,9 +34,10 @@ class MoySkladClient:
         else:
             self.auth_type = "None"
             
+        timeout_config = httpx.Timeout(15.0, connect=10.0)
         self.client = httpx.AsyncClient(
             headers=headers,
-            timeout=45.0,
+            timeout=timeout_config,
             base_url=settings.moysklad_api_url.rstrip("/")
         )
         self.semaphore = asyncio.Semaphore(5)
@@ -86,8 +87,8 @@ class MoySkladClient:
             }
 
     @retry(
-        stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=1, min=1, max=10),
+        stop=stop_after_attempt(2),
+        wait=wait_exponential(multiplier=1, min=1, max=4),
         retry=retry_if_exception_type((httpx.RequestError,))
     )
     async def _request(self, method: str, endpoint: str, params: dict = None, json_data: dict = None) -> dict:

@@ -7,6 +7,9 @@ router = APIRouter(prefix="/finance", tags=["Молия ва Пул айланм
 
 
 @router.get("/cashflow-summary", summary="Пул айланмаси ва маржиналлик ҳисоботи")
+@router.get("/cash-flow", summary="Пул айланмаси ва маржиналлик ҳисоботи (Алиас)")
+@router.get("/cashflow", summary="Пул айланмаси ва маржиналлик ҳисоботи (Алиас)")
+@router.get("/transactions", summary="Пул айланмаси ва транзакциялар (Алиас)")
 async def get_cashflow_summary(
     date_from: Optional[str] = Query(None, description="Бошланиш санаси (YYYY-MM-DD)"),
     date_to: Optional[str] = Query(None, description="Тугаш санаси (YYYY-MM-DD)"),

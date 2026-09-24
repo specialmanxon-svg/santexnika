@@ -211,12 +211,29 @@ class CashFlowService:
                 result[pid] = self._product_brand_cache[pid]
                 continue
 
+            # Check product name directly against known brand keywords first (avoids remote HTTP calls)
+            name_upper = pname.upper()
+            found_brand = None
+            for brand_label, keywords in COMMON_BRAND_KEYWORDS:
+                for kw in keywords:
+                    if re.search(r'\b' + re.escape(kw) + r'\b', name_upper):
+                        found_brand = brand_label
+                        break
+                if found_brand:
+                    break
+
+            if found_brand:
+                norm = normalize_brand(found_brand)
+                self._product_brand_cache[pid] = norm
+                result[pid] = norm
+                continue
+
             missing_pids.append(pid)
 
-        # Batch fetch missing product attributes from MoySklad
+        # Batch fetch missing product attributes from MoySklad (capped to prevent timeouts)
         if missing_pids:
             chunk_size = 50
-            for i in range(0, len(missing_pids), chunk_size):
+            for i in range(0, min(len(missing_pids), 100), chunk_size):
                 chunk = missing_pids[i:i + chunk_size]
                 filter_str = ";".join([f"id={x}" for x in chunk if x])
                 if not filter_str:
@@ -291,9 +308,13 @@ class CashFlowService:
         params = {"limit": 1000}
         filters = []
         if date_from:
-            filters.append(f"moment>={date_from} 00:00:00")
+            clean_date_from = str(date_from).strip().split(" ")[0].split("T")[0]
+            if clean_date_from:
+                filters.append(f"moment>={clean_date_from} 00:00:00")
         if date_to:
-            filters.append(f"moment<={date_to} 23:59:59")
+            clean_date_to = str(date_to).strip().split(" ")[0].split("T")[0]
+            if clean_date_to:
+                filters.append(f"moment<={clean_date_to} 23:59:59")
         if filters:
             params["filter"] = ";".join(filters)
 
@@ -310,38 +331,53 @@ class CashFlowService:
         date_to: Optional[str] = None,
         force_refresh: bool = False
     ) -> Dict[str, Any]:
-        """Comprehensive Cash Flow summary: today's in/out, net profit, margin %, daily flow, and category margins."""
+        """Comprehensive Cash Flow summary: today's in/out, net profit, margin %, daily flow, and brand margins."""
         now_dt = datetime.now()
         today_str = now_dt.strftime("%Y-%m-%d")
 
-        if not date_from:
+        if date_from:
+            date_from = str(date_from).strip().split(" ")[0].split("T")[0]
+        else:
             date_from = f"{now_dt.year}-{now_dt.month:02d}-01"
-        if not date_to:
+
+        if date_to:
+            date_to = str(date_to).strip().split(" ")[0].split("T")[0]
+        else:
             date_to = today_str
 
         cache_key = f"{date_from}_{date_to}"
         now_ts = time.time()
-        if not force_refresh and self._cache["data"] and self._cache["key"] == cache_key and (now_ts - self._cache["ts"] < 60):
+        # 5-minute cache (300 seconds)
+        if not force_refresh and self._cache["data"] and self._cache["key"] == cache_key and (now_ts - self._cache["ts"] < 300):
             logger.info("returning_cached_cashflow_summary", key=cache_key)
             return self._cache["data"]
 
         logger.info("fetching_cashflow_summary", date_from=date_from, date_to=date_to, force_refresh=force_refresh)
 
         try:
-            # 1. Fetch categories map
-            cat_map = await self._get_category_map()
+            # 1. Fetch categories map & 4 payment entities in parallel
+            cat_map_task = self._get_category_map()
+            p_in_task = self._fetch_payments_entity("paymentin", date_from, date_to)
+            c_in_task = self._fetch_payments_entity("cashin", date_from, date_to)
+            p_out_task = self._fetch_payments_entity("paymentout", date_from, date_to)
+            c_out_task = self._fetch_payments_entity("cashout", date_from, date_to)
 
-            # 2. Fetch payments (bank + cash desk) with gentle delays to prevent 429
-            payment_in = await self._fetch_payments_entity("paymentin", date_from, date_to)
-            await asyncio.sleep(0.08)
-            cash_in = await self._fetch_payments_entity("cashin", date_from, date_to)
-            await asyncio.sleep(0.08)
-            payment_out = await self._fetch_payments_entity("paymentout", date_from, date_to)
-            await asyncio.sleep(0.08)
-            cash_out = await self._fetch_payments_entity("cashout", date_from, date_to)
-            await asyncio.sleep(0.08)
+            gathered_results = await asyncio.gather(
+                cat_map_task,
+                p_in_task,
+                c_in_task,
+                p_out_task,
+                c_out_task,
+                return_exceptions=True
+            )
 
-            # 3. Fetch sales profitability report from MoySklad
+            cat_map = gathered_results[0] if isinstance(gathered_results[0], dict) else {}
+            payment_in = gathered_results[1] if isinstance(gathered_results[1], list) else []
+            cash_in = gathered_results[2] if isinstance(gathered_results[2], list) else []
+            payment_out = gathered_results[3] if isinstance(gathered_results[3], list) else []
+            cash_out = gathered_results[4] if isinstance(gathered_results[4], list) else []
+
+            # 2. Fetch sales profitability report from MoySklad
             profit_params = {
                 "momentFrom": f"{date_from} 00:00:00",
                 "limit": 1000
@@ -356,7 +392,7 @@ class CashFlowService:
             except Exception as e:
                 logger.warning("failed_to_fetch_profit_byproduct", error=str(e))
 
-            # 4. Aggregate daily flows
+            # 3. Aggregate daily flows
             daily_totals: Dict[str, Dict[str, float]] = {}
 
             all_incoming = payment_in + cash_in
@@ -401,7 +437,7 @@ class CashFlowService:
             total_income_period = sum(d["income"] for d in daily_flow)
             total_expense_period = sum(d["expense"] for d in daily_flow)
 
-            # 5. Aggregate brand margins (Брендлар бўйича маржа ва фойда таҳлили)
+            # 4. Aggregate brand margins (Брендлар бўйича маржа ва фойда таҳлили)
             products_info = []
             for r in profit_rows:
                 assort = r.get("assortment", {})
@@ -523,7 +559,8 @@ class CashFlowService:
                     "margin_percent": 0.0
                 },
                 "daily_flow": [],
-                "category_margin": []
+                "category_margin": [],
+                "brand_margin": []
             }
 
     async def get_expenses_by_category(
@@ -536,30 +573,39 @@ class CashFlowService:
         Group outgoing payments (paymentout and cashout) by expenseItem (Статья расходов).
         Returns list of categories formatted as:
         [
-            { "category": "Ижара (Аренда)", "amount": 15000000.0, "percentage": 30.0 }, ...
+            { "category": "Ижара (Аренда)", "expense_item": "Ижара (Аренда)", "amount": 15000000.0, "percentage": 30.0 }, ...
         ]
         """
         now_dt = datetime.now()
         today_str = now_dt.strftime("%Y-%m-%d")
 
-        if not date_from:
+        if date_from:
+            date_from = str(date_from).strip().split(" ")[0].split("T")[0]
+        else:
             date_from = f"{now_dt.year}-{now_dt.month:02d}-01"
-        if not date_to:
+
+        if date_to:
+            date_to = str(date_to).strip().split(" ")[0].split("T")[0]
+        else:
             date_to = today_str
 
         cache_key = f"{date_from}_{date_to}"
         now_ts = time.time()
-        if not force_refresh and self._expenses_cache["data"] and self._expenses_cache["key"] == cache_key and (now_ts - self._expenses_cache["ts"] < 60):
+        # 5-minute cache (300 seconds)
+        if not force_refresh and self._expenses_cache["data"] and self._expenses_cache["key"] == cache_key and (now_ts - self._expenses_cache["ts"] < 300):
             return self._expenses_cache["data"]
 
         logger.info("fetching_expenses_by_category", date_from=date_from, date_to=date_to, force_refresh=force_refresh)
 
         try:
-            exp_map = await self._get_expense_items_map()
+            exp_map_task = self._get_expense_items_map()
+            p_out_task = self._fetch_payments_entity("paymentout", date_from, date_to)
+            c_out_task = self._fetch_payments_entity("cashout", date_from, date_to)
 
-            payment_out = await self._fetch_payments_entity("paymentout", date_from, date_to)
-            await asyncio.sleep(0.08)
-            cash_out = await self._fetch_payments_entity("cashout", date_from, date_to)
+            gathered = await asyncio.gather(exp_map_task, p_out_task, c_out_task, return_exceptions=True)
+            exp_map = gathered[0] if isinstance(gathered[0], dict) else {}
+            payment_out = gathered[1] if isinstance(gathered[1], list) else []
+            cash_out = gathered[2] if isinstance(gathered[2], list) else []
 
             category_sums: Dict[str, float] = {}
             total_expenses = 0.0
@@ -573,13 +619,13 @@ class CashFlowService:
                 name = None
                 if isinstance(exp_obj, dict):
                     name = exp_obj.get("name")
-                    if not name:
+                    if not name and exp_obj.get("meta", {}).get("href"):
                         href = exp_obj.get("meta", {}).get("href", "")
                         exp_id = href.split("/")[-1] if href else None
                         name = exp_map.get(exp_id)
 
-                if not name or not name.strip():
-                    name = "Бошқа харажатлар"
+                if not name or not str(name).strip():
+                    name = "Бошқа харажатлар" if exp_obj else "Кўрсатилмаган харажат"
 
                 clean_name = EXPENSE_CATEGORY_NAMES.get(name, name)
                 category_sums[clean_name] = category_sums.get(clean_name, 0.0) + amt
@@ -590,6 +636,7 @@ class CashFlowService:
                 pct = round((amt / total_expenses * 100.0), 1) if total_expenses > 0 else 0.0
                 result.append({
                     "category": cat,
+                    "expense_item": cat,
                     "amount": round(amt, 2),
                     "percentage": pct
                 })

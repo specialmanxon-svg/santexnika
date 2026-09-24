@@ -2874,7 +2874,10 @@ async function loadCashFlow(forceRefresh = false) {
         const url = `/finance/cashflow-summary?${q}${forceRefresh ? '&force_refresh=true' : ''}`;
         const data = await apiFetch(url);
 
-        if (!data) {
+        if (!data || data.status === 'error') {
+            if (cfTable) {
+                cfTable.innerHTML = '<tr><td colspan="4" class="text-center text-gray-500 py-8">Ҳисобот даврида молиявий ҳаракатлар топилмади</td></tr>';
+            }
             toast('❌ Пул айланмаси маълумотларини олишда хатолик', true);
             return;
         }
@@ -2894,7 +2897,7 @@ async function loadCashFlow(forceRefresh = false) {
         const dailyRows = data.daily_flow || [];
         if (cfTable) {
             if (!dailyRows.length) {
-                cfTable.innerHTML = '<tr><td colspan="4" class="text-center text-gray-400 py-8">Танланган давр учун кирим/чиқимлар топилмади</td></tr>';
+                cfTable.innerHTML = '<tr><td colspan="4" class="text-center text-gray-500 py-8">Ҳисобот даврида молиявий ҳаракатлар топилмади</td></tr>';
             } else {
                 cfTable.innerHTML = dailyRows.map(r => {
                     const balance = r.balance ?? ((r.income || 0) - (r.expense || 0));
@@ -2916,7 +2919,10 @@ async function loadCashFlow(forceRefresh = false) {
         }
     } catch (e) {
         console.error('loadCashFlow error:', e);
-        toast('❌ Пул айланмасини юклашда хатолик: ' + e.message, true);
+        if (cfTable) {
+            cfTable.innerHTML = '<tr><td colspan="4" class="text-center text-gray-500 py-8">Ҳисобот даврида молиявий ҳаракатлар топилмади</td></tr>';
+        }
+        toast('❌ Пул айланмаси маълумотларини олишда хатолик: ' + (e.message || ''), true);
     } finally {
         if (btn) btn.disabled = false;
         if (btnText) btnText.innerHTML = '🔄 Янгилаш';
@@ -2937,13 +2943,8 @@ async function loadExpensesByCategory(forceRefresh = false) {
         const url = `/finance/expenses-by-category?${q}${forceRefresh ? '&force_refresh=true' : ''}`;
         const data = await apiFetch(url);
 
-        if (!data || !Array.isArray(data)) {
-            expTable.innerHTML = '<tr><td colspan="4" class="text-center text-gray-400 py-8">Харажатлар маълумоти олинмади</td></tr>';
-            return;
-        }
-
-        if (data.length === 0) {
-            expTable.innerHTML = '<tr><td colspan="4" class="text-center text-gray-400 py-8">Танланган даврда чиқимлар мавжуд эмас</td></tr>';
+        if (!data || !Array.isArray(data) || data.length === 0) {
+            expTable.innerHTML = '<tr><td colspan="4" class="text-center text-gray-500 py-8">Ҳисобот даврида молиявий ҳаракатлар топилмади</td></tr>';
             if (badge) badge.textContent = 'Жами чиқим: 0 сўм';
             return;
         }
@@ -2977,7 +2978,7 @@ async function loadExpensesByCategory(forceRefresh = false) {
                 <tr class="data-row hover:bg-gray-50 transition">
                     <td class="font-medium text-gray-900 flex items-center gap-2">
                         <span class="inline-block w-2.5 h-2.5 rounded-full ${color}"></span>
-                        <span>${escapeHtml(item.category || 'Бошқа харажатлар')}</span>
+                        <span>${escapeHtml(item.category || item.expense_item || 'Бошқа харажатлар')}</span>
                     </td>
                     <td class="num font-semibold text-rose-700">-${fmt(item.amount || 0)} сўм</td>
                     <td class="num">
@@ -2996,7 +2997,8 @@ async function loadExpensesByCategory(forceRefresh = false) {
 
     } catch (err) {
         console.error('loadExpensesByCategory error:', err);
-        expTable.innerHTML = `<tr><td colspan="4" class="text-center text-red-500 py-8">Хатолик: ${escapeHtml(err.message)}</td></tr>`;
+        expTable.innerHTML = '<tr><td colspan="4" class="text-center text-gray-500 py-8">Ҳисобот даврида молиявий ҳаракатлар топилмади</td></tr>';
+        if (badge) badge.textContent = 'Жами чиқим: 0 сўм';
     }
 }
 
@@ -3014,13 +3016,8 @@ async function loadBrandMargin(forceRefresh = false) {
         const url = `/finance/brand-margin?${q}${forceRefresh ? '&force_refresh=true' : ''}`;
         const data = await apiFetch(url);
 
-        if (!data || !Array.isArray(data)) {
-            table.innerHTML = '<tr><td colspan="6" class="text-center text-gray-400 py-8">Брендлар маълумоти олинмади</td></tr>';
-            return;
-        }
-
-        if (data.length === 0) {
-            table.innerHTML = '<tr><td colspan="6" class="text-center text-gray-400 py-8">Танланган даврда савдо қилинган брендлар мавжуд эмас</td></tr>';
+        if (!data || !Array.isArray(data) || data.length === 0) {
+            table.innerHTML = '<tr><td colspan="6" class="text-center text-gray-500 py-8">Ҳисобот даврида савдо қилинган брендлар топилмади</td></tr>';
             if (badge) badge.textContent = '0 та бренд';
             return;
         }
@@ -3052,7 +3049,8 @@ async function loadBrandMargin(forceRefresh = false) {
 
     } catch (err) {
         console.error('loadBrandMargin error:', err);
-        table.innerHTML = `<tr><td colspan="6" class="text-center text-red-500 py-8">Хатолик: ${escapeHtml(err.message)}</td></tr>`;
+        table.innerHTML = '<tr><td colspan="6" class="text-center text-gray-500 py-8">Ҳисобот даврида савдо қилинган брендлар топилмади</td></tr>';
+        if (badge) badge.textContent = '0 та бренд';
     }
 }
 

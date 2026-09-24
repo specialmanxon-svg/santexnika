@@ -29,6 +29,8 @@ async def get_monthly_cashflow(
 
 @router.get("/summary")
 @router.get("/cashflow-summary")
+@router.get("/cash-flow")
+@router.get("/transactions")
 async def get_cashflow_summary(
     date_from: Optional[str] = Query(None, description="Start date YYYY-MM-DD"),
     date_to: Optional[str] = Query(None, description="End date YYYY-MM-DD"),
