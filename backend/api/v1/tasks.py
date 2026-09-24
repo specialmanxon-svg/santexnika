@@ -195,10 +195,10 @@ async def _send_task_notification_to_employee(task: Task, assignee: Optional[Dic
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [
                 InlineKeyboardButton(text="🟢 Қабул қилдим", callback_data=f"task_accept_{task.id}"),
-                InlineKeyboardButton(text="🏁 Бажарилди", callback_data=f"task_done_{task.id}"),
+                InlineKeyboardButton(text="✅ Бажардим", callback_data=f"task_done_{task.id}"),
             ],
             [
-                InlineKeyboardButton(text="✍️ Жавоб юбориш", callback_data=f"task_respond_{task.id}"),
+                InlineKeyboardButton(text="✍️ Изоҳ қолдириш", callback_data=f"task_respond_{task.id}"),
             ]
         ])
 

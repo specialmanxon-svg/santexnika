@@ -195,14 +195,15 @@ def get_main_keyboard() -> ReplyKeyboardMarkup:
 
 
 def get_location_keyboard() -> ReplyKeyboardMarkup:
-    """GPS геолокацияни сўраш клавиатураси."""
+    """GPS локацияни сўраш клавиатураси."""
     return ReplyKeyboardMarkup(
         keyboard=[
-            [KeyboardButton(text="📍 Ҳозирги геолокацияни юбориш", request_location=True)],
+            [KeyboardButton(text="📍 Ҳозирги локациямни юбориш", request_location=True)],
             [KeyboardButton(text="❌ Бекор қилиш")]
         ],
         resize_keyboard=True,
-        one_time_keyboard=True
+        one_time_keyboard=True,
+        input_field_placeholder="Локация юбориш тугмасини босинг..."
     )
 
 
@@ -451,8 +452,8 @@ async def btn_checkin(message: types.Message, state: FSMContext):
     await state.update_data(action="CHECKIN", employee_id=emp.id, employee_name=emp.employee_name)
 
     prompt = (
-        f"Ҳурматли <b>{emp.employee_name}</b>!\n"
-        f"Илтимос, пастдаги «📍 Ҳозирги геолокацияни юбориш» тугмасини босинг:"
+        f"📍 Ҳурматли <b>{emp.employee_name}</b>!\n\n"
+        f"Ишга келишни қайд этиш учун, илтимос, пастдаги «📍 Ҳозирги локациямни юбориш» тугмасини босинг:"
     )
     await message.answer(prompt, reply_markup=get_location_keyboard(), parse_mode="HTML")
 
@@ -474,8 +475,8 @@ async def btn_checkout(message: types.Message, state: FSMContext):
     await state.update_data(action="CHECKOUT", employee_id=emp.id, employee_name=emp.employee_name)
 
     prompt = (
-        f"Ҳурматли <b>{emp.employee_name}</b>!\n"
-        f"Илтимос, пастдаги «📍 Ҳозирги геолокацияни юбориш» тугмасини босинг:"
+        f"🏁 Ҳурматли <b>{emp.employee_name}</b>!\n\n"
+        f"Ишдан кетишни қайд этиш учун, илтимос, пастдаги «📍 Ҳозирги локациямни юбориш» тугмасини босинг:"
     )
     await message.answer(prompt, reply_markup=get_location_keyboard(), parse_mode="HTML")
 
@@ -574,8 +575,7 @@ async def handle_location(message: types.Message, state: FSMContext):
     if not within_geofence:
         if action == "CHECKIN":
             fail_msg = (
-                f"❌ <b>Ишга келиш қайд этилмади!</b>\n\n"
-                f"Сиз иш жойида эмассиз.\n"
+                f"❌ <b>Сиз иш жойида эмассиз.</b>\n\n"
                 f"🏢 <b>Объект:</b> {target_name}\n"
                 f"📏 <b>Масофа:</b> {int(min_dist)} метр\n"
                 f"⭕️ <b>Рухсат этилган радиус:</b> {int(allowed_radius)} метр\n\n"
@@ -583,12 +583,11 @@ async def handle_location(message: types.Message, state: FSMContext):
             )
         else:
             fail_msg = (
-                f"❌ <b>Ишдан кетиш қайд этилмади!</b>\n\n"
-                f"Сиз иш жойида эмассиз.\n"
+                f"❌ <b>Сиз иш жойида эмассиз.</b>\n\n"
                 f"🏢 <b>Объект:</b> {target_name}\n"
                 f"📏 <b>Масофа:</b> {int(min_dist)} метр\n"
                 f"⭕️ <b>Рухсат этилган радиус:</b> {int(allowed_radius)} метр\n\n"
-                f"<i>Илтимос, ишдан кетишни қайд этиш учун объект ҳудудида туриб тугмани босинг!</i>"
+                f"<i>Илтимос, ишдан кетишни қайд этиш учун объект ҳудудига яқин келиб қайта уриниб кўринг!</i>"
             )
         await message.answer(fail_msg, reply_markup=get_main_keyboard(), parse_mode="HTML")
         return
@@ -697,11 +696,12 @@ async def handle_location(message: types.Message, state: FSMContext):
                     await session.commit()
 
                 resp_text = (
-                    f"🏁 <b>Смена якунланди. Ишланган вақт: {hours} соат</b>\n\n"
+                    f"✅ <b>Иш вақтингиз якунланди! Кунингиз хайрли ўтсин.</b>\n\n"
                     f"👤 <b>Ходим:</b> {emp.employee_name}\n"
                     f"🏢 <b>Объект:</b> <b>{target_name}</b>\n"
-                    f"⏰ <b>Кетиш вақти:</b> {now_local.strftime('%H:%M:%S')} ({now_local.strftime('%d.%m.%Y')})\n\n"
-                    f"<i>Давомад дашбордда акс эттирилди. Ҳорманг!</i>"
+                    f"⏰ <b>Чиқиш вақти:</b> {now_local.strftime('%H:%M:%S')} ({now_local.strftime('%d.%m.%Y')})\n"
+                    f"⏱ <b>Ишланган вақт:</b> {hours} соат\n\n"
+                    f"<i>Чиқиш вақти дашбордда муваффақиятли қайд этилди. Ҳорманг!</i>"
                 )
 
                 # 3. Раҳбарият гуруҳига билдиришнома юбориш (Фақат Раҳбариятга)
@@ -709,7 +709,7 @@ async def handle_location(message: types.Message, state: FSMContext):
                     f"🏁 <b>Иш сменаси якунланди (GPS)</b>\n\n"
                     f"👤 <b>Ходим:</b> {emp.employee_name}\n"
                     f"🏢 <b>Объект:</b> {target_name}\n"
-                    f"⏰ <b>Кетган вақти:</b> {now_local.strftime('%H:%M:%S')} ({now_local.strftime('%d.%m.%Y')})\n"
+                    f"⏰ <b>Чиқиш вақти:</b> {now_local.strftime('%H:%M:%S')} ({now_local.strftime('%d.%m.%Y')})\n"
                     f"⏱ <b>Ишланган вақт:</b> {hours} соат\n"
                     f"📱 <b>Манба:</b> 📱 Telegram"
                 )
@@ -728,10 +728,186 @@ async def handle_location(message: types.Message, state: FSMContext):
 
 # ═══════════════ ТОПШИРИҚЛАР БЎЛИМИ (TASK MANAGER) ═══════════════
 
+def format_task_deadline(dl: Optional[datetime]) -> str:
+    """Топшириқ муддатини чиройли форматда чиқариш."""
+    if not dl:
+        return "—"
+    if dl.tzinfo is None:
+        dl = dl.replace(tzinfo=timezone.utc).astimezone(UZ_TZ)
+    return dl.strftime("%d.%m.%Y %H:%M")
+
+
+async def get_employee_tasks(tg_id: int):
+    """Ходимнинг фаол ва бажарилган топшириқларини базадан олиш."""
+    async with AsyncSessionLocal() as session:
+        # Фаол топшириқлар (new, in_progress)
+        stmt_act = select(Task).where(
+            Task.assigned_telegram_id == tg_id,
+            Task.status.in_(["new", "in_progress"])
+        ).order_by(Task.created_at.desc())
+        res_act = await session.execute(stmt_act)
+        active_tasks = list(res_act.scalars().all())
+
+        # Бажарилган топшириқлар (completed, охирги 15 та)
+        stmt_comp = select(Task).where(
+            Task.assigned_telegram_id == tg_id,
+            Task.status == "completed"
+        ).order_by(Task.updated_at.desc(), Task.id.desc()).limit(15)
+        res_comp = await session.execute(stmt_comp)
+        completed_tasks = list(res_comp.scalars().all())
+
+        return active_tasks, completed_tasks
+
+
+async def render_active_tasks(chat_id: int, user_id: int, bot: Bot, edit_message_id: Optional[int] = None):
+    """Фаол топшириқлар рўйхати ва ҳар бири остида «Бажардим» ҳамда «Изоҳ қолдириш» тугмалари."""
+    active_tasks, completed_tasks = await get_employee_tasks(user_id)
+    comp_cnt = len(completed_tasks)
+
+    if not active_tasks:
+        text = (
+            "⏳ <b>ФАОЛ ТОПШИРИҚЛАР</b>\n\n"
+            "Сизда ҳозирда ижро этилиши керак бўлган фаол топшириқлар мавжуд эмас.\n"
+            "Барча вазифалар муваффақиятли бажарилган! 🎉"
+        )
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [
+                InlineKeyboardButton(text=f"📁 Бажарилган топшириқлар ({comp_cnt})", callback_data="tasks_completed"),
+                InlineKeyboardButton(text="🔄 Янгилаш", callback_data="tasks_refresh_active"),
+            ],
+            [
+                InlineKeyboardButton(text="⬅️ Бўлимлар менюси", callback_data="tasks_menu")
+            ]
+        ])
+        if edit_message_id:
+            try:
+                await bot.edit_message_text(chat_id=chat_id, message_id=edit_message_id, text=text, reply_markup=kb, parse_mode="HTML")
+                return
+            except Exception:
+                pass
+        await bot.send_message(chat_id=chat_id, text=text, reply_markup=kb, parse_mode="HTML")
+        return
+
+    header_text = (
+        f"⏳ <b>СИЗНИНГ ФАОЛ ТОПШИРИҚЛАРИНГИЗ ({len(active_tasks)} та)</b>\n"
+        f"<i>(Ижро этилмаган ва муддати келаётган вазифалар):</i>"
+    )
+    if edit_message_id:
+        try:
+            await bot.edit_message_text(chat_id=chat_id, message_id=edit_message_id, text=header_text, parse_mode="HTML")
+        except Exception:
+            await bot.send_message(chat_id=chat_id, text=header_text, parse_mode="HTML")
+    else:
+        await bot.send_message(chat_id=chat_id, text=header_text, parse_mode="HTML")
+
+    for t in active_tasks[:10]:
+        status_icon = "🆕" if t.status == "new" else "🔄"
+        status_name = "Янги" if t.status == "new" else "Жараёнда"
+        deadline_str = format_task_deadline(t.deadline)
+        voice_badge = " 🎙 (Овозли топшириқ)" if t.voice_url else ""
+        creator_str = t.creator_name or "Раҳбарият"
+
+        card_text = (
+            f"{status_icon} <b>ТОПШИРИҚ #{t.id}</b>{voice_badge}\n\n"
+            f"📌 <b>Мавзу:</b> {t.title}\n"
+            f"📝 <b>Тафсилот:</b> {t.description or '—'}\n"
+            f"⏰ <b>Муддат:</b> {deadline_str}\n"
+            f"📊 <b>Ҳолат:</b> {status_name}\n"
+            f"👤 <b>Буюрди:</b> {creator_str}"
+        )
+        if t.employee_response:
+            card_text += f"\n💬 <b>Сизнинг изоҳингиз:</b> <i>{t.employee_response}</i>"
+
+        task_kb = InlineKeyboardMarkup(inline_keyboard=[
+            [
+                InlineKeyboardButton(text="✅ Бажардим", callback_data=f"task_done_{t.id}"),
+                InlineKeyboardButton(text="✍️ Изоҳ қолдириш", callback_data=f"task_respond_{t.id}"),
+            ]
+        ])
+        await bot.send_message(chat_id=chat_id, text=card_text, reply_markup=task_kb, parse_mode="HTML")
+
+    nav_kb = InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text=f"📁 Бажарилган топшириқлар ({comp_cnt})", callback_data="tasks_completed"),
+            InlineKeyboardButton(text="🔄 Янгилаш", callback_data="tasks_refresh_active"),
+        ],
+        [
+            InlineKeyboardButton(text="⬅️ Бўлимлар менюси", callback_data="tasks_menu")
+        ]
+    ])
+    await bot.send_message(chat_id=chat_id, text="<i>Бошқа бўлимга ўтиш учун:</i>", reply_markup=nav_kb, parse_mode="HTML")
+
+
+async def render_completed_tasks(chat_id: int, user_id: int, bot: Bot, edit_message_id: Optional[int] = None):
+    """Бажарилган топшириқлар архивини чиқариш."""
+    active_tasks, completed_tasks = await get_employee_tasks(user_id)
+    act_cnt = len(active_tasks)
+
+    if not completed_tasks:
+        text = (
+            "📁 <b>БАЖАРИЛГАН ТОПШИРИҚЛАР АРХИВИ</b>\n\n"
+            "Ҳозирча сиз томонингиздан бажарилган топшириқлар архиви бўш."
+        )
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [
+                InlineKeyboardButton(text=f"⏳ Фаол топшириқлар ({act_cnt})", callback_data="tasks_active"),
+                InlineKeyboardButton(text="🔄 Янгилаш", callback_data="tasks_refresh_completed"),
+            ],
+            [
+                InlineKeyboardButton(text="⬅️ Бўлимлар менюси", callback_data="tasks_menu")
+            ]
+        ])
+        if edit_message_id:
+            try:
+                await bot.edit_message_text(chat_id=chat_id, message_id=edit_message_id, text=text, reply_markup=kb, parse_mode="HTML")
+                return
+            except Exception:
+                pass
+        await bot.send_message(chat_id=chat_id, text=text, reply_markup=kb, parse_mode="HTML")
+        return
+
+    lines = [f"📁 <b>БАЖАРИЛГАН ТОПШИРИҚЛАР АРХИВИ ({len(completed_tasks)} та)</b>:\n"]
+    for idx, t in enumerate(completed_tasks[:10], 1):
+        done_time = t.updated_at
+        if done_time:
+            if done_time.tzinfo is None:
+                done_time = done_time.replace(tzinfo=timezone.utc).astimezone(UZ_TZ)
+            done_str = done_time.strftime("%d.%m.%Y %H:%M")
+        else:
+            done_str = "—"
+
+        lines.append(
+            f"✅ <b>#{t.id} — {t.title}</b>\n"
+            f"   ⏰ Бажарилди: {done_str}\n"
+            f"   📝 Тафсилот: {t.description or '—'}"
+        )
+        if t.employee_response:
+            lines.append(f"   💬 Сизнинг изоҳингиз: <i>{t.employee_response}</i>")
+        lines.append("")
+
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text=f"⏳ Фаол топшириқлар ({act_cnt})", callback_data="tasks_active"),
+            InlineKeyboardButton(text="🔄 Янгилаш", callback_data="tasks_refresh_completed"),
+        ],
+        [
+            InlineKeyboardButton(text="⬅️ Бўлимлар менюси", callback_data="tasks_menu")
+        ]
+    ])
+    text = "\n".join(lines)
+    if edit_message_id:
+        try:
+            await bot.edit_message_text(chat_id=chat_id, message_id=edit_message_id, text=text, reply_markup=kb, parse_mode="HTML")
+            return
+        except Exception:
+            pass
+    await bot.send_message(chat_id=chat_id, text=text, reply_markup=kb, parse_mode="HTML")
+
+
 @router.message(Command("tasks"))
 @router.message(F.text.contains("Менинг топшириқларим"))
 async def cmd_tasks(message: types.Message):
-    """Ходимнинг фаол топшириқлари рўйхати."""
+    """«Менинг топшириқларим» бўлими: Фаол ва Бажарилган топшириқлар танлови."""
     emp = await get_authorized_employee(message.from_user.id, message.from_user.username)
     if not emp:
         await message.answer(
@@ -742,54 +918,90 @@ async def cmd_tasks(message: types.Message):
         )
         return
 
-    async with AsyncSessionLocal() as session:
-        stmt = select(Task).where(
-            Task.assigned_telegram_id == message.from_user.id,
-            Task.status.in_(["new", "in_progress"]),
-        ).order_by(Task.created_at.desc())
-        result = await session.execute(stmt)
-        tasks = result.scalars().all()
+    active_tasks, completed_tasks = await get_employee_tasks(message.from_user.id)
+    act_cnt = len(active_tasks)
+    comp_cnt = len(completed_tasks)
 
-    if not tasks:
-        await message.answer(
-            "📋 <b>Сизда ҳозирча фаол топшириқлар мавжуд эмас.</b>",
-            reply_markup=get_main_keyboard(),
-            parse_mode="HTML"
-        )
-        return
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text=f"⏳ Фаол топшириқлар ({act_cnt})", callback_data="tasks_active"),
+            InlineKeyboardButton(text=f"📁 Бажарилган топшириқлар ({comp_cnt})", callback_data="tasks_completed"),
+        ]
+    ])
 
-    text_lines = ["📋 <b>Сизнинг фаол топшириқларингиз:</b>\n"]
-    for t in tasks:
-        status_icon = {"new": "🆕", "in_progress": "🔄"}.get(t.status, "📋")
-        deadline_str = "—"
-        if t.deadline:
-            dl = t.deadline
-            if dl.tzinfo is None:
-                dl = dl.replace(tzinfo=timezone.utc).astimezone(UZ_TZ)
-            deadline_str = dl.strftime("%d.%m.%Y %H:%M")
-        voice_badge = " 🎙 (Овозли)" if t.voice_url else ""
-        text_lines.append(
-            f"{status_icon} <b>#{t.id}</b> — {t.title}{voice_badge}\n"
-            f"   ⏰ Муддат: {deadline_str}\n"
-        )
-
-    # Inline тугмалар — ҳар бир топшириққа жавоб бериш
-    buttons = []
-    for t in tasks[:10]:  # Максимум 10 та
-        buttons.append([
-            InlineKeyboardButton(
-                text=f"✍️ #{t.id} га жавоб",
-                callback_data=f"task_respond_{t.id}",
-            )
-        ])
-
-    keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
-
-    await message.answer(
-        "\n".join(text_lines),
-        reply_markup=keyboard,
-        parse_mode="HTML"
+    text = (
+        f"📋 <b>ТОПШИРИҚЛАР БЎЛИМИ</b>\n\n"
+        f"👤 <b>Ходим:</b> {emp.employee_name}\n\n"
+        f"⏳ <b>Фаол топшириқлар:</b> {act_cnt} та\n"
+        f"📁 <b>Бажарилганлар (архив):</b> {comp_cnt} та\n\n"
+        f"<i>Кўрмоқчи бўлган бўлимингизни танланг:</i>"
     )
+    await message.answer(text, reply_markup=kb, parse_mode="HTML")
+
+
+@router.callback_query(F.data.in_(["tasks_active", "tasks_refresh_active"]))
+async def cb_tasks_active(callback: CallbackQuery):
+    """Инлайн тугма орқали фаол топшириқларни кўриш."""
+    await callback.answer()
+    await render_active_tasks(
+        chat_id=callback.message.chat.id,
+        user_id=callback.from_user.id,
+        bot=callback.bot,
+        edit_message_id=callback.message.message_id
+    )
+
+
+@router.callback_query(F.data.in_(["tasks_completed", "tasks_refresh_completed"]))
+async def cb_tasks_completed(callback: CallbackQuery):
+    """Инлайн тугма орқали бажарилган топшириқларни кўриш."""
+    await callback.answer()
+    await render_completed_tasks(
+        chat_id=callback.message.chat.id,
+        user_id=callback.from_user.id,
+        bot=callback.bot,
+        edit_message_id=callback.message.message_id
+    )
+
+
+@router.callback_query(F.data == "tasks_menu")
+async def cb_tasks_menu(callback: CallbackQuery):
+    """Бўлимлар бош менюсига қайтиш."""
+    await callback.answer()
+    emp = await get_authorized_employee(callback.from_user.id, callback.from_user.username)
+    active_tasks, completed_tasks = await get_employee_tasks(callback.from_user.id)
+    act_cnt = len(active_tasks)
+    comp_cnt = len(completed_tasks)
+
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text=f"⏳ Фаол топшириқлар ({act_cnt})", callback_data="tasks_active"),
+            InlineKeyboardButton(text=f"📁 Бажарилган топшириқлар ({comp_cnt})", callback_data="tasks_completed"),
+        ]
+    ])
+
+    text = (
+        f"📋 <b>ТОПШИРИҚЛАР БЎЛИМИ</b>\n\n"
+        f"👤 <b>Ходим:</b> {emp.employee_name if emp else 'Ходим'}\n\n"
+        f"⏳ <b>Фаол топшириқлар:</b> {act_cnt} та\n"
+        f"📁 <b>Бажарилганлар (архив):</b> {comp_cnt} та\n\n"
+        f"<i>Кўрмоқчи бўлган бўлимингизни танланг:</i>"
+    )
+    try:
+        await callback.message.edit_text(text, reply_markup=kb, parse_mode="HTML")
+    except Exception:
+        await callback.message.answer(text, reply_markup=kb, parse_mode="HTML")
+
+
+@router.message(F.text.contains("Фаол топшириқлар"))
+async def msg_tasks_active(message: types.Message):
+    """Матн орқали фаол топшириқларни сўраш."""
+    await render_active_tasks(chat_id=message.chat.id, user_id=message.from_user.id, bot=message.bot)
+
+
+@router.message(F.text.contains("Бажарилган топшириқлар"))
+async def msg_tasks_completed(message: types.Message):
+    """Матн орқали бажарилган топшириқларни сўраш."""
+    await render_completed_tasks(chat_id=message.chat.id, user_id=message.from_user.id, bot=message.bot)
 
 
 @router.message(F.text.contains("Янги топшириқ"))
@@ -842,12 +1054,7 @@ async def handle_task_accept(callback: CallbackQuery):
             task.updated_at = datetime.utcnow()
             await session.commit()
 
-        deadline_str = "—"
-        if task.deadline:
-            dl = task.deadline
-            if dl.tzinfo is None:
-                dl = dl.replace(tzinfo=timezone.utc).astimezone(UZ_TZ)
-            deadline_str = dl.strftime("%d.%m.%Y %H:%M")
+        deadline_str = format_task_deadline(task.deadline)
 
         # Янгиланган хабар
         text = (
@@ -860,8 +1067,8 @@ async def handle_task_accept(callback: CallbackQuery):
 
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [
-                InlineKeyboardButton(text="🏁 Бажарилди", callback_data=f"task_done_{task.id}"),
-                InlineKeyboardButton(text="✍️ Жавоб/Ҳисобот юбориш", callback_data=f"task_respond_{task.id}")
+                InlineKeyboardButton(text="✅ Бажардим", callback_data=f"task_done_{task.id}"),
+                InlineKeyboardButton(text="✍️ Изоҳ қолдириш", callback_data=f"task_respond_{task.id}")
             ]
         ])
 
@@ -888,8 +1095,8 @@ async def handle_task_accept(callback: CallbackQuery):
 
 @router.callback_query(F.data.startswith("task_done_"))
 async def handle_task_done(callback: CallbackQuery):
-    """Ходим топшириқни бажарди — статус completed ва раҳбарга хабар."""
-    await callback.answer("🏁 Топшириқ бажарилди деб белгиланди!")
+    """Ходим топшириқни бажарди — статус completed, фаол рўйхатдан чиқариш ва раҳбарга хабар."""
+    await callback.answer("✅ Топшириқ бажарилди деб белгиланди!")
 
     task_id_str = callback.data.replace("task_done_", "")
     try:
@@ -909,27 +1116,46 @@ async def handle_task_done(callback: CallbackQuery):
         task.updated_at = datetime.utcnow()
         await session.commit()
 
+        # Update remaining active tasks count
+        stmt_act = select(Task).where(
+            Task.assigned_telegram_id == callback.from_user.id,
+            Task.status.in_(["new", "in_progress"])
+        )
+        res_act = await session.execute(stmt_act)
+        remaining_cnt = len(res_act.scalars().all())
+
         text = (
-            f"🏁 <b>ТОПШИРИҚ БАЖАРИЛДИ! #{task.id}</b>\n\n"
+            f"✅ <b>ТОПШИРИҚ БАЖАРИЛДИ! #{task.id}</b>\n\n"
             f"📌 <b>Мавзу:</b> {task.title}\n"
             f"📝 <b>Тафсилот:</b> {task.description or '—'}\n"
-            f"📊 <b>Статус:</b> 🟢 Бажарилди\n"
-            f"⏰ <b>Вақт:</b> {now_local.strftime('%d.%m.%Y %H:%M')}"
+            f"📊 <b>Статус:</b> 🟢 Бажарилди (Архивга ўтказилди)\n"
+            f"⏰ <b>Бажарилган вақт:</b> {now_local.strftime('%d.%m.%Y %H:%M')}\n\n"
+            f"<i>Топшириқ фаол рўйхатдан чиқарилиб, «Бажарилганлар» бўлимига ўтказилди.</i>"
         )
+        if task.employee_response:
+            text += f"\n💬 <b>Сизнинг изоҳингиз:</b> <i>{task.employee_response}</i>"
+
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [
+                InlineKeyboardButton(text=f"⏳ Фаол топшириқлар ({remaining_cnt})", callback_data="tasks_active"),
+                InlineKeyboardButton(text="📁 Бажарилганлар", callback_data="tasks_completed"),
+            ]
+        ])
+
         try:
-            await callback.message.edit_text(text, parse_mode="HTML")
+            await callback.message.edit_text(text, reply_markup=kb, parse_mode="HTML")
         except Exception:
             try:
-                await callback.message.edit_caption(caption=text, parse_mode="HTML")
+                await callback.message.edit_caption(caption=text, reply_markup=kb, parse_mode="HTML")
             except Exception:
-                await callback.message.answer(text, parse_mode="HTML")
+                await callback.message.answer(text, reply_markup=kb, parse_mode="HTML")
 
-        # Топшириқ берган шахсга (creator_chat_id) хабар бериш
+        # 1. Топшириқ берган шахсга (creator_chat_id) хабар бериш
         target_chat = task.creator_chat_id or os.getenv("TELEGRAM_CEO_CHAT_ID") or "5950380558"
         try:
             creator_text = (
                 f"🏁 <b>ВАЗИФА БАЖАРИЛДИ!</b>\n\n"
-                f"Ходим <b>{task.assigned_name}</b> вазифани бажарди.\n\n"
+                f"Ходим <b>{task.assigned_name}</b> вазифани муваффақиятли бажарди.\n\n"
                 f"📋 <b>Топшириқ #{task.id}:</b> {task.title}\n"
                 f"⏰ <b>Бажарилган вақт:</b> {now_local.strftime('%d.%m.%Y %H:%M')}\n"
                 f"🌐 <a href='https://santexnika.onrender.com/dashboard#tasks'>Дашбордда кўриш</a>"
@@ -938,8 +1164,8 @@ async def handle_task_done(callback: CallbackQuery):
         except Exception as e:
             logger.error(f"Раҳбарга task_done хабари юборишда хатолик: {e}")
 
-        # Агар кузатувчи бўлса унга ҳам хабар
-        if task.observer_telegram_id and task.observer_telegram_id != target_chat:
+        # 2. Агар кузатувчи бўлса унга ҳам хабар
+        if task.observer_telegram_id and str(task.observer_telegram_id) != str(target_chat):
             try:
                 obs_text = (
                     f"👁 <b>НАЗОРАТ: Вазифа бажарилди</b>\n\n"
@@ -954,7 +1180,7 @@ async def handle_task_done(callback: CallbackQuery):
 
 @router.callback_query(F.data.startswith("task_respond_"))
 async def handle_task_respond(callback: CallbackQuery, state: FSMContext):
-    """Ходим жавоб/ҳисобот юбормоқчи — FSM га ўтказиш."""
+    """Ходим топшириққа изоҳ/ҳисобот қолдирмоқчи — FSM га ўтказиш."""
     await callback.answer()
 
     task_id_str = callback.data.replace("task_respond_", "")
@@ -972,17 +1198,31 @@ async def handle_task_respond(callback: CallbackQuery, state: FSMContext):
     await state.set_state(TaskStates.waiting_for_response)
     await state.update_data(task_id=task_id)
 
-    await callback.message.answer(
-        f"✍️ <b>Топшириқ #{task_id}</b> учун жавоб/ҳисоботингизни ёзинг:\n\n"
+    prompt = (
+        f"✍️ <b>Топшириқ #{task_id} га изоҳ қолдириш</b>\n\n"
         f"📌 <b>Мавзу:</b> {task.title}\n\n"
-        f"Қуйидаги хабарда жавобингизни матн кўринишида юборинг:",
+        f"Илтимос, изоҳ ёки ҳисоботингизни ёзиб юборинг:\n"
+        f"<i>(Бекор қилиш учун «❌ Бекор қилиш» тугмасини босинг)</i>"
+    )
+    await callback.message.answer(
+        prompt,
+        reply_markup=ReplyKeyboardMarkup(
+            keyboard=[[KeyboardButton(text="❌ Бекор қилиш")]],
+            resize_keyboard=True,
+            one_time_keyboard=True
+        ),
         parse_mode="HTML"
     )
 
 
 @router.message(TaskStates.waiting_for_response)
 async def handle_task_response_text(message: types.Message, state: FSMContext):
-    """Ходим жавоб матнини юборди — базага ёзиш ва раҳбарга хабар бериш."""
+    """Ходим изоҳ/жавоб матнини юборди — базага ёзиш ва раҳбарга хабар бериш."""
+    if message.text in ("❌ Бекор қилиш", "/cancel", "Бекор қилиш"):
+        await state.clear()
+        await message.answer("❌ Изоҳ қолдириш бекор қилинди.", reply_markup=get_main_keyboard())
+        return
+
     data = await state.get_data()
     task_id = data.get("task_id")
     await state.clear()
@@ -993,7 +1233,7 @@ async def handle_task_response_text(message: types.Message, state: FSMContext):
 
     response_text = message.text or ""
     if not response_text.strip():
-        await message.answer("⚠️ Жавоб матни бўш. Илтимос, ҳисоботингизни ёзинг.", reply_markup=get_main_keyboard())
+        await message.answer("⚠️ Изоҳ матни бўш. Илтимос, изоҳингизни ёзинг.", reply_markup=get_main_keyboard())
         return
 
     async with AsyncSessionLocal() as session:
@@ -1008,45 +1248,48 @@ async def handle_task_response_text(message: types.Message, state: FSMContext):
         task.updated_at = datetime.utcnow()
         await session.commit()
 
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="✅ Бажардим", callback_data=f"task_done_{task_id}"),
+            InlineKeyboardButton(text="⏳ Фаол топшириқлар", callback_data="tasks_active"),
+        ]
+    ])
+
     await message.answer(
-        f"✅ <b>Жавобингиз қабул қилинди!</b>\n\n"
+        f"✅ <b>Изоҳингиз муваффақиятли сақланди!</b>\n\n"
         f"📋 <b>Топшириқ:</b> #{task_id} — {task.title}\n"
-        f"💬 <b>Жавоб:</b> {response_text[:200]}{'...' if len(response_text) > 200 else ''}\n\n"
-        f"Маълумот раҳбарга ва дашбордга узатилди.",
-        reply_markup=get_main_keyboard(),
+        f"💬 <b>Изоҳ:</b> {response_text[:300]}{'...' if len(response_text) > 300 else ''}\n\n"
+        f"<i>Изоҳ раҳбариятга ва дашбордга узатилди.</i>",
+        reply_markup=kb,
         parse_mode="HTML"
     )
+    await message.answer("Асосий меню:", reply_markup=get_main_keyboard())
 
     # Раҳбарга хабар
     try:
-        ceo_chat_id = os.getenv("TELEGRAM_CEO_CHAT_ID") or "5950380558"
-
-        deadline_str = "—"
-        if task.deadline:
-            dl = task.deadline
-            if dl.tzinfo is None:
-                dl = dl.replace(tzinfo=timezone.utc).astimezone(UZ_TZ)
-            deadline_str = dl.strftime("%d.%m.%Y %H:%M")
+        ceo_chat_id = task.creator_chat_id or os.getenv("TELEGRAM_CEO_CHAT_ID") or "5950380558"
+        deadline_str = format_task_deadline(task.deadline)
 
         notify_text = (
-            f"📩 <b>ХОДИМ ЖАВОБИ — Топшириқ #{task_id}</b>\n\n"
+            f"📩 <b>ХОДИМ ИЗОҲИ — Топшириқ #{task_id}</b>\n\n"
             f"👤 <b>Ижрочи:</b> {task.assigned_name}\n"
             f"📌 <b>Мавзу:</b> {task.title}\n"
             f"⏰ <b>Муддат:</b> {deadline_str}\n"
-            f"💬 <b>Жавоб:</b>\n{response_text}\n"
+            f"💬 <b>Изоҳ:</b>\n{response_text}\n"
+            f"🌐 <a href='https://santexnika.onrender.com/dashboard#tasks'>Дашбордда кўриш</a>"
         )
         await message.bot.send_message(chat_id=ceo_chat_id, text=notify_text, parse_mode="HTML")
     except Exception as e:
-        logger.error(f"Раҳбарга жавоб хабари юборишда хатолик: {e}")
+        logger.error(f"Раҳбарга изоҳ хабари юборишда хатолик: {e}")
 
     # Кузатувчига хабар
-    if task.observer_telegram_id:
+    if task.observer_telegram_id and str(task.observer_telegram_id) != str(ceo_chat_id):
         try:
             observer_text = (
-                f"📩 <b>НАЗОРАТ: Ходим жавоб юборди</b>\n\n"
+                f"📩 <b>НАЗОРАТ: Ходим изоҳ қолдирди</b>\n\n"
                 f"📋 <b>Топшириқ:</b> #{task_id} — {task.title}\n"
                 f"👤 <b>Ижрочи:</b> {task.assigned_name}\n"
-                f"💬 <b>Жавоб:</b>\n{response_text}\n"
+                f"💬 <b>Изоҳ:</b>\n{response_text}"
             )
             await message.bot.send_message(
                 chat_id=task.observer_telegram_id,
@@ -1054,7 +1297,7 @@ async def handle_task_response_text(message: types.Message, state: FSMContext):
                 parse_mode="HTML"
             )
         except Exception as e:
-            logger.error(f"Кузатувчига жавоб хабари юборишда хатолик: {e}")
+            logger.error(f"Кузатувчига изоҳ хабари юборишда хатолик: {e}")
 
 
 # ═══════════════ ОВОЗЛИ ВА ЁЗМА ТОПШИРИҚЛАРНИ ҚАБУЛ ҚИЛИШ ═══════════════
@@ -1142,10 +1385,10 @@ async def handle_voice_task(message: types.Message):
                 assignee_kb = InlineKeyboardMarkup(inline_keyboard=[
                     [
                         InlineKeyboardButton(text="🟢 Қабул қилдим", callback_data=f"task_accept_{task.id}"),
-                        InlineKeyboardButton(text="🏁 Бажарилди", callback_data=f"task_done_{task.id}"),
+                        InlineKeyboardButton(text="✅ Бажардим", callback_data=f"task_done_{task.id}"),
                     ],
                     [
-                        InlineKeyboardButton(text="✍️ Жавоб юбориш", callback_data=f"task_respond_{task.id}"),
+                        InlineKeyboardButton(text="✍️ Изоҳ қолдириш", callback_data=f"task_respond_{task.id}"),
                     ]
                 ])
                 caption = (
@@ -1257,10 +1500,10 @@ async def handle_text_task_or_query(message: types.Message, state: FSMContext):
                 assignee_kb = InlineKeyboardMarkup(inline_keyboard=[
                     [
                         InlineKeyboardButton(text="🟢 Қабул қилдим", callback_data=f"task_accept_{task.id}"),
-                        InlineKeyboardButton(text="🏁 Бажарилди", callback_data=f"task_done_{task.id}"),
+                        InlineKeyboardButton(text="✅ Бажардим", callback_data=f"task_done_{task.id}"),
                     ],
                     [
-                        InlineKeyboardButton(text="✍️ Жавоб юбориш", callback_data=f"task_respond_{task.id}"),
+                        InlineKeyboardButton(text="✍️ Изоҳ қолдириш", callback_data=f"task_respond_{task.id}"),
                     ]
                 ])
                 msg = (
