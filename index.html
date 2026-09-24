@@ -917,18 +917,19 @@
                 <table>
                     <thead>
                         <tr>
-                            <th class="w-12">#</th>
+                            <th class="w-12 text-center">#</th>
                             <th>Ким берди</th>
                             <th>Ижрочи</th>
+                            <th>Берилган вақти</th>
                             <th>Топшириқ мазмуни</th>
                             <th>Овозли хабар</th>
-                            <th>Муддати</th>
+                            <th>Муддати (Дедлайн)</th>
                             <th>Статус</th>
                             <th>Амаллар</th>
                         </tr>
                     </thead>
                     <tbody id="tasks-table">
-                        <tr><td colspan="8" class="text-center text-gray-400 py-8">Маълумотлар юкланмоқда...</td></tr>
+                        <tr><td colspan="9" class="text-center text-gray-400 py-8">Маълумотлар юкланмоқда...</td></tr>
                     </tbody>
                 </table>
             </div>
@@ -4937,7 +4938,7 @@ async function loadTasks(statusFilter, isSilent = false) {
     const tbody = document.getElementById('tasks-table');
     if (!tbody) return;
     if (!isSilent || !tbody.children.length || tbody.innerHTML.includes('Маълумотлар юкланмоқда')) {
-        tbody.innerHTML = '<tr><td colspan="8" class="text-center text-gray-400 py-8"><div class="loader mx-auto"></div> Юкланмоқда...</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="9" class="text-center text-gray-400 py-8"><div class="loader mx-auto"></div> Юкланмоқда...</td></tr>';
     }
 
     let url = '/tasks';
@@ -4946,7 +4947,7 @@ async function loadTasks(statusFilter, isSilent = false) {
     const data = await apiFetch(url);
     if (!data || !Array.isArray(data)) {
         if (!isSilent) {
-            tbody.innerHTML = '<tr><td colspan="8" class="text-center text-gray-400 py-8">Маълумот олинмади</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="9" class="text-center text-gray-400 py-8">Маълумот олинмади</td></tr>';
         }
         return;
     }
@@ -4964,7 +4965,7 @@ async function loadTasks(statusFilter, isSilent = false) {
         document.getElementById('tasks-stat-expired').textContent = expired;
     }
 
-    const emptyMsg = '<tr><td colspan="8" class="text-center text-gray-400 py-8">Топшириқлар мавжуд эмас</td></tr>';
+    const emptyMsg = '<tr><td colspan="9" class="text-center text-gray-400 py-8">Топшириқлар мавжуд эмас</td></tr>';
 
     initPagination('tasks-table', data, (t, idx, rowNum) => {
         const statusMap = {
@@ -4975,6 +4976,14 @@ async function loadTasks(statusFilter, isSilent = false) {
             'overdue': '<span class="badge badge-red">⏰ Муддати ўтган</span>'
         };
         const statusBadge = statusMap[t.status] || `<span class="badge">${t.status}</span>`;
+
+        let createdAtStr = '—';
+        if (t.created_at) {
+            try {
+                const ca = new Date(t.created_at);
+                createdAtStr = ca.toLocaleDateString('ru-RU') + ' ' + ca.toLocaleTimeString('ru-RU', {hour:'2-digit', minute:'2-digit'});
+            } catch(e) { createdAtStr = t.created_at; }
+        }
 
         let deadlineStr = '—';
         if (t.deadline) {
@@ -5018,6 +5027,7 @@ async function loadTasks(statusFilter, isSilent = false) {
                     <div class="font-semibold text-gray-900">${assignee}</div>
                     ${observerBadge}
                 </td>
+                <td class="num text-xs text-gray-600 whitespace-nowrap font-medium">${createdAtStr}</td>
                 <td>
                     <div class="font-medium text-gray-900">${escapeHtml(t.title || '')}</div>
                     ${t.description ? `<div class="text-xs text-gray-500 mt-0.5 whitespace-pre-wrap">${escapeHtml(t.description)}</div>` : ''}

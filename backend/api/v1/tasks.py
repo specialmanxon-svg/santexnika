@@ -168,19 +168,19 @@ async def get_employee_by_id_or_name(session, identifier: Any, name: Optional[st
                     "telegram_chat_id": emp.telegram_id,
                     "phone": emp.phone_number,
                 }
-        # Қисман мослик (масалан: 'Latipov', 'Джумаева')
-        s_words = [w for w in search_name.replace(".", " ").split() if len(w) > 2]
-        for emp in employees:
-            emp_lower = emp.employee_name.lower()
-            if any(w in emp_lower for w in s_words):
-                return {
-                    "id": emp.id,
-                    "name": emp.employee_name,
-                    "telegram_chat_id": emp.telegram_id,
-                    "phone": emp.phone_number,
-                }
+        # 4. Исм, фамилия ва тахаллуслар (aliases) бўйича қидириш (Каххоров, Фаррух, Farrux ва ҳ.к.)
+        from services.task_parser import find_assignee_in_text
+        matched_emp, _ = find_assignee_in_text(search_name, employees)
+        if matched_emp:
+            return {
+                "id": matched_emp.id,
+                "name": matched_emp.employee_name,
+                "telegram_chat_id": matched_emp.telegram_id,
+                "phone": matched_emp.phone_number,
+            }
 
     return None
+
 
 
 # ── Helper: Telegram Bot олиш ───────────────────────────────────

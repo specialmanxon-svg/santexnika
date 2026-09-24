@@ -181,6 +181,11 @@ async def lifespan(app: FastAPI):
     except Exception:
         pass
     try:
+        from workers.task_worker import shutdown_task_scheduler
+        shutdown_task_scheduler()
+    except Exception:
+        pass
+    try:
         await task_reminder_task
     except asyncio.CancelledError:
         pass
