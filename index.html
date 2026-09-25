@@ -1508,11 +1508,12 @@ const DateFilter = {
             if (text.includes('пул')) return 'finance';
             if (text.includes('ходимлар')) return 'hr';
             if (text.includes('ҳамкорлик')) return 'partners';
+            if (text.includes('топшириқ')) return 'tasks';
         }
-        for (let i = 0; i < 5; i++) {
+        for (let i = 0; i < 6; i++) {
             const el = document.getElementById('tab' + i);
             if (el && !el.classList.contains('hidden')) {
-                return ['warehouse', 'debts', 'finance', 'hr', 'partners'][i];
+                return ['warehouse', 'debts', 'finance', 'hr', 'partners', 'tasks'][i];
             }
         }
         return 'warehouse';
@@ -1549,6 +1550,8 @@ const DateFilter = {
             loadTimesheet();
         } else if (tab === 'partners') {
             loadReferralStats(true);
+        } else if (tab === 'tasks') {
+            loadTasks();
         }
     }
 };

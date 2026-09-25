@@ -535,10 +535,11 @@ async def unlock_company(counterparty_id: str, session: AsyncSession = Depends(g
 async def list_blocked(session: AsyncSession = Depends(get_db)):
     """List currently blocked companies."""
     try:
-        overview = await get_debts_overview(session)
+        overview = await get_debts_overview(session=session)
         return overview.get("hardlock_list", [])
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error("list_blocked_failed", error=str(e))
+        return []
 
 
 @router.post("/send-act/{counterparty_id}")
