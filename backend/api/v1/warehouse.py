@@ -900,6 +900,128 @@ async def create_bulk_supplier_order(payload: BulkSupplierOrderRequest):
         await ms_client.close()
 
 
+@router.post("/export-supplier-order-excel", summary="Таъминотчига буюртма спецификациясини Excel файлида юклаб олиш")
+async def export_supplier_order_excel(payload: BulkSupplierOrderRequest):
+    """
+    Таъминотчи бўйича буюртма берилаётган барча товарларни расмий Спецификация
+    шаклида Excel (.xlsx) файлига экспорт қилиш.
+    """
+    try:
+        supplier_name = payload.supplier_name or "Асосий таъминотчи"
+        items = payload.items or []
+
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "Буюртма Спецификацияси"
+
+        title_font = Font(name="Calibri", size=15, bold=True, color="1E3A8A")
+        sub_font = Font(name="Calibri", size=11, italic=True, color="475569")
+        header_font = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
+        header_fill = PatternFill(start_color="1E3A8A", end_color="1E3A8A", fill_type="solid")
+        total_fill = PatternFill(start_color="DCFCE7", end_color="DCFCE7", fill_type="solid")
+        total_font = Font(name="Calibri", size=11, bold=True, color="065F46")
+        data_font = Font(name="Calibri", size=10)
+        thin_side = Side(border_style="thin", color="CBD5E1")
+        border = Border(left=thin_side, right=thin_side, top=thin_side, bottom=thin_side)
+
+        ws.merge_cells("A1:G1")
+        ws["A1"] = "Diyor Group • ТАЪМИНОТЧИГА БУЮРТМА СПЕЦИФИКАЦИЯСИ"
+        ws["A1"].font = title_font
+        ws["A1"].alignment = Alignment(horizontal="center", vertical="center")
+
+        ws.merge_cells("A2:G2")
+        ws["A2"] = f"Таъминотчи: {supplier_name}  |  Сана: {datetime.now().strftime('%d.%m.%Y %H:%M')}"
+        ws["A2"].font = sub_font
+        ws["A2"].alignment = Alignment(horizontal="center", vertical="center")
+
+        ws.append([])
+
+        headers = ["№", "Товар номи", "Артикул / SKU", "ABC/XYZ", "Буюртма (дона)", "Харид нархи (сўм)", "Жами сумма (сўм)"]
+        ws.append(headers)
+        header_row_idx = 4
+
+        for col_idx in range(1, 8):
+            cell = ws.cell(row=header_row_idx, column=col_idx)
+            cell.font = header_font
+            cell.fill = header_fill
+            cell.alignment = Alignment(horizontal="center", vertical="center")
+            cell.border = border
+
+        total_qty = 0.0
+        total_sum = 0.0
+        current_row = header_row_idx + 1
+
+        for idx, it in enumerate(items, 1):
+            if (it.matrix_category or "").upper() == "CZ":
+                continue
+            qty = float(it.quantity or 0.0)
+            price = float(it.buy_price or 0.0)
+            row_sum = qty * price
+            total_qty += qty
+            total_sum += row_sum
+
+            name = it.name or it.product_id
+            sku = it.product_id[:12] if len(it.product_id) > 12 else it.product_id
+            cat = it.matrix_category or "—"
+
+            ws.append([idx, name, sku, cat, qty, price, row_sum])
+
+            ws.cell(row=current_row, column=1).alignment = Alignment(horizontal="center")
+            ws.cell(row=current_row, column=2).alignment = Alignment(horizontal="left")
+            ws.cell(row=current_row, column=3).alignment = Alignment(horizontal="center")
+            ws.cell(row=current_row, column=4).alignment = Alignment(horizontal="center")
+            ws.cell(row=current_row, column=5).alignment = Alignment(horizontal="right")
+            ws.cell(row=current_row, column=6).alignment = Alignment(horizontal="right")
+            ws.cell(row=current_row, column=7).alignment = Alignment(horizontal="right")
+
+            ws.cell(row=current_row, column=5).number_format = "#,##0"
+            ws.cell(row=current_row, column=6).number_format = "#,##0"
+            ws.cell(row=current_row, column=7).number_format = "#,##0"
+
+            for c in range(1, 8):
+                cell = ws.cell(row=current_row, column=c)
+                cell.font = data_font
+                cell.border = border
+
+            current_row += 1
+
+        # Summary Row
+        ws.append(["ЖАМИ:", "", "", "", total_qty, "", total_sum])
+        total_row_idx = current_row
+        ws.merge_cells(start_row=total_row_idx, start_column=1, end_row=total_row_idx, end_column=4)
+
+        for col_idx in range(1, 8):
+            cell = ws.cell(row=total_row_idx, column=col_idx)
+            cell.font = total_font
+            cell.fill = total_fill
+            cell.border = border
+            if col_idx in (5, 7):
+                cell.number_format = "#,##0"
+                cell.alignment = Alignment(horizontal="right")
+
+        ws.cell(row=total_row_idx, column=1).alignment = Alignment(horizontal="center", vertical="center")
+
+        column_widths = {1: 6, 2: 42, 3: 18, 4: 12, 5: 16, 6: 20, 7: 22}
+        for col_idx, width in column_widths.items():
+            ws.column_dimensions[openpyxl.utils.get_column_letter(col_idx)].width = width
+
+        buffer = BytesIO()
+        wb.save(buffer)
+        buffer.seek(0)
+
+        safe_name = "".join(c for c in supplier_name if c.isalnum() or c in (" ", "_", "-")).strip().replace(" ", "_")
+        filename = f"Spetsifikatsiya_{safe_name[:25]}_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx"
+
+        return StreamingResponse(
+            buffer,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'}
+        )
+    except Exception as e:
+        logger.error("export_supplier_order_excel_failed", error=str(e))
+        raise HTTPException(status_code=500, detail=f"Спецификация яратишда хатолик: {str(e)}")
+
+
 # ═══════════════ ЯККА ТАРТИБДАГИ БУЮРТМА (ОРҚАГА МУТОБИҚЛИК УЧУН) ═══════════════
 
 class PurchaseOrderCreateRequest(BaseModel):

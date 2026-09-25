@@ -68,6 +68,33 @@ async def _demand_hard_lock_monitor():
         await asyncio.sleep(4)
 
 
+async def _keep_alive_monitor():
+    """Background keep-alive self-ping (every 8 minutes) to prevent server idling on cloud platforms."""
+    logger.info("keep_alive_monitor_started")
+    await asyncio.sleep(60)  # Initial grace delay
+    import httpx
+    while True:
+        try:
+            target_urls = [
+                "http://127.0.0.1:8000/health",
+                "https://santexnika.onrender.com/health"
+            ]
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                for url in target_urls:
+                    try:
+                        resp = await client.get(url)
+                        if resp.status_code == 200:
+                            logger.info("keep_alive_ping_success", url=url)
+                            break
+                    except Exception:
+                        pass
+        except asyncio.CancelledError:
+            break
+        except Exception as e:
+            logger.warning("keep_alive_ping_warning", error=str(e))
+        await asyncio.sleep(480)  # 8 minutes
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifecycle manager."""
@@ -90,6 +117,10 @@ async def lifespan(app: FastAPI):
                             cursor.execute("ALTER TABLE tasks ADD COLUMN voice_file_id VARCHAR(255);")
                         if "voice_url" not in cols:
                             cursor.execute("ALTER TABLE tasks ADD COLUMN voice_url VARCHAR(500);")
+                        if "attachment_url" not in cols:
+                            cursor.execute("ALTER TABLE tasks ADD COLUMN attachment_url VARCHAR(500);")
+                        if "attachment_name" not in cols:
+                            cursor.execute("ALTER TABLE tasks ADD COLUMN attachment_name VARCHAR(255);")
                 except Exception as ex:
                     logger.warning("tasks_columns_migration_warning", error=str(ex))
             await conn.run_sync(_migrate_tasks_cols)
@@ -143,6 +174,9 @@ async def lifespan(app: FastAPI):
     # Start background demand monitor task
     monitor_task = asyncio.create_task(_demand_hard_lock_monitor())
 
+    # Start keep-alive self-ping monitor
+    keep_alive_task = asyncio.create_task(_keep_alive_monitor())
+
     # Start task reminder background worker (Топшириқлар муддат назорати)
     from workers.task_worker import start_task_reminder_loop
     task_reminder_task = asyncio.create_task(start_task_reminder_loop())
@@ -171,11 +205,18 @@ async def lifespan(app: FastAPI):
 
     logger.info("application_shutting_down")
     monitor_task.cancel()
+    keep_alive_task.cancel()
     task_reminder_task.cancel()
     if bot_task:
         bot_task.cancel()
     try:
         await monitor_task
+    except asyncio.CancelledError:
+        pass
+    except Exception:
+        pass
+    try:
+        await keep_alive_task
     except asyncio.CancelledError:
         pass
     except Exception:

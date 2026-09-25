@@ -41,6 +41,10 @@ class Task(Base):
     voice_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
     voice_file_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
+    # Илова қилинган расм ёки ҳужжат
+    attachment_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    attachment_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+
     # Эслатма юборилганми
     reminder_sent: Mapped[int] = mapped_column(Integer, default=0)
 

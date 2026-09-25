@@ -6,6 +6,7 @@
     <title>Diyor Group — Бошқарув Панели</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.mini.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
     <script>
         tailwind.config = {
             theme: {
@@ -42,6 +43,8 @@
         table { width: 100%; border-collapse: collapse; }
         th, td { padding: 10px 12px; text-align: left; border-bottom: 1px solid #e2e8f0; font-size: 14px; }
         th { background: #f1f5f9; font-weight: 600; color: #475569; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; }
+        th.sortable { cursor: pointer; transition: background 0.15s; user-select: none; }
+        th.sortable:hover { background: #e2e8f0; color: #1e3a8a; }
         tr:hover { background: #f8fafc; }
         .badge { display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 600; }
         .badge-red { background: #fee2e2; color: #dc2626; }
@@ -70,7 +73,8 @@
         #taskModal,
         #partnerOfferModal,
         #purchaseOrderModal,
-        #workplacesModal {
+        #workplacesModal,
+        #sourceDataModal {
             position: fixed !important;
             inset: 0 !important;
             top: 0 !important;
@@ -94,7 +98,8 @@
         #taskModal.hidden,
         #partnerOfferModal.hidden,
         #purchaseOrderModal.hidden,
-        #workplacesModal.hidden {
+        #workplacesModal.hidden,
+        #sourceDataModal.hidden {
             display: none !important;
         }
 
@@ -356,12 +361,12 @@
                     <thead>
                         <tr>
                             <th class="w-12 text-center">#</th>
-                            <th>Товар номи</th>
-                            <th>Гуруҳ</th>
-                            <th class="text-center">ABC/XYZ</th>
-                            <th class="text-right">Қолдиқ</th>
-                            <th class="text-center">Кунлар</th>
-                            <th class="text-right">Музлаган (сўм)</th>
+                            <th class="sortable" onclick="TableSorter.sort('nonliquid-table', 1, 'text', this)">Товар номи <span class="sort-icon text-gray-400">↕</span></th>
+                            <th class="sortable" onclick="TableSorter.sort('nonliquid-table', 2, 'text', this)">Гуруҳ <span class="sort-icon text-gray-400">↕</span></th>
+                            <th class="text-center sortable" onclick="TableSorter.sort('nonliquid-table', 3, 'text', this)">ABC/XYZ <span class="sort-icon text-gray-400">↕</span></th>
+                            <th class="text-right sortable" onclick="TableSorter.sort('nonliquid-table', 4, 'num', this)">Қолдиқ <span class="sort-icon text-gray-400">↕</span></th>
+                            <th class="text-center sortable" onclick="TableSorter.sort('nonliquid-table', 5, 'num', this)">Кунлар <span class="sort-icon text-gray-400">↕</span></th>
+                            <th class="text-right sortable" onclick="TableSorter.sort('nonliquid-table', 6, 'num', this)">Музлаган (сўм) <span class="sort-icon text-gray-400">↕</span></th>
                         </tr>
                     </thead>
                     <tbody id="nonliquid-table">
@@ -473,9 +478,9 @@
                     <thead>
                         <tr id="debts-table-head">
                             <th style="width: 40px;">#</th>
-                            <th>Контрагент</th>
-                            <th>Қарз суммаси</th>
-                            <th>Кечиккан кун (Статус)</th>
+                            <th class="sortable" onclick="TableSorter.sort('debtors-table', 1, 'text', this)">Контрагент <span class="sort-icon text-gray-400">↕</span></th>
+                            <th class="sortable" onclick="TableSorter.sort('debtors-table', 2, 'num', this)">Қарз суммаси <span class="sort-icon text-gray-400">↕</span></th>
+                            <th class="sortable" onclick="TableSorter.sort('debtors-table', 3, 'num', this)">Кечиккан кун (Статус) <span class="sort-icon text-gray-400">↕</span></th>
                             <th style="width: 250px;">Амаллар</th>
                         </tr>
                     </thead>
@@ -520,17 +525,42 @@
             </div>
         </div>
 
+        <!-- Cash Flow Visual Trend Chart (Chart.js) -->
+        <div class="bg-white rounded-xl border border-gray-200 shadow-sm p-4 mb-6">
+            <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
+                <div class="flex items-center gap-2">
+                    <span class="text-xl">📈</span>
+                    <h3 class="font-bold text-gray-900 text-sm">Пул оқими динамикаси (Кирим, Чиқим ва Соф фойда графиги)</h3>
+                </div>
+                <div class="flex items-center gap-3 text-xs">
+                    <span class="flex items-center gap-1.5"><span class="w-3 h-3 bg-emerald-500 rounded-sm inline-block"></span> <b>Кирим</b></span>
+                    <span class="flex items-center gap-1.5"><span class="w-3 h-3 bg-rose-500 rounded-sm inline-block"></span> <b>Чиқим</b></span>
+                    <span class="flex items-center gap-1.5"><span class="w-3 h-3 bg-blue-600 rounded-sm inline-block"></span> <b>Соф баланс</b></span>
+                </div>
+            </div>
+            <div class="relative w-full" style="height: 220px;">
+                <canvas id="cashflowTrendChart"></canvas>
+            </div>
+        </div>
+
         <!-- Cash Flow table -->
         <div class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden mb-6">
-            <div class="px-4 py-3 border-b border-gray-200">
+            <div class="px-4 py-3 border-b border-gray-200 flex items-center justify-between">
                 <h3 class="font-semibold text-gray-800">Кунлик кирим/чиқимлар</h3>
+                <span class="text-xs text-gray-400">Устун номини босиб саралаш мумкин</span>
             </div>
             <div class="overflow-x-auto">
                 <table>
                     <thead>
-                        <tr><th>Сана</th><th>Кириш (сўм)</th><th>Чиқиш (сўм)</th><th>Баланс</th></tr>
+                        <tr>
+                            <th class="sortable" onclick="TableSorter.sort('cashflow-table', 0, 'date', this)">Сана <span class="sort-icon text-gray-400">↕</span></th>
+                            <th class="sortable" onclick="TableSorter.sort('cashflow-table', 1, 'num', this)">Кириш (сўм) <span class="sort-icon text-gray-400">↕</span></th>
+                            <th class="sortable" onclick="TableSorter.sort('cashflow-table', 2, 'num', this)">Чиқиш (сўм) <span class="sort-icon text-gray-400">↕</span></th>
+                            <th class="sortable" onclick="TableSorter.sort('cashflow-table', 3, 'num', this)">Баланс <span class="sort-icon text-gray-400">↕</span></th>
+                            <th>Манба ҳужжат</th>
+                        </tr>
                     </thead>
-                    <tbody id="cashflow-table"><tr><td colspan="4" class="text-center text-gray-400 py-8">Маълумотлар юкланмоқда...</td></tr></tbody>
+                    <tbody id="cashflow-table"><tr><td colspan="5" class="text-center text-gray-400 py-8">Маълумотлар юкланмоқда...</td></tr></tbody>
                 </table>
             </div>
 
@@ -553,9 +583,9 @@
                 <table>
                     <thead>
                         <tr>
-                            <th>Категория номи</th>
-                            <th>Сумма (сўм)</th>
-                            <th>Фоиз (%)</th>
+                            <th class="sortable" onclick="TableSorter.sort('expenses-table', 0, 'text', this)">Категория номи <span class="sort-icon text-gray-400">↕</span></th>
+                            <th class="sortable" onclick="TableSorter.sort('expenses-table', 1, 'num', this)">Сумма (сўм) <span class="sort-icon text-gray-400">↕</span></th>
+                            <th class="sortable" onclick="TableSorter.sort('expenses-table', 2, 'num', this)">Фоиз (%) <span class="sort-icon text-gray-400">↕</span></th>
                             <th class="w-1/3">Прогресс-бар индикатори</th>
                         </tr>
                     </thead>
@@ -583,11 +613,11 @@
                     <thead>
                         <tr class="bg-gray-50 text-gray-600 text-xs border-b">
                             <th class="w-12 text-center">#</th>
-                            <th>БРЕНД НОМИ</th>
-                            <th>САВДО СУММАСИ</th>
-                            <th>ТАННАРХ</th>
-                            <th>МАРЖА</th>
-                            <th>МАРЖА %</th>
+                            <th class="sortable" onclick="TableSorter.sort('brand-margin-table', 1, 'text', this)">БРЕНД НОМИ <span class="sort-icon text-gray-400">↕</span></th>
+                            <th class="sortable" onclick="TableSorter.sort('brand-margin-table', 2, 'num', this)">САВДО СУММАСИ <span class="sort-icon text-gray-400">↕</span></th>
+                            <th class="sortable" onclick="TableSorter.sort('brand-margin-table', 3, 'num', this)">ТАННАРХ <span class="sort-icon text-gray-400">↕</span></th>
+                            <th class="sortable" onclick="TableSorter.sort('brand-margin-table', 4, 'num', this)">МАРЖА <span class="sort-icon text-gray-400">↕</span></th>
+                            <th class="sortable" onclick="TableSorter.sort('brand-margin-table', 5, 'num', this)">МАРЖА % <span class="sort-icon text-gray-400">↕</span></th>
                         </tr>
                     </thead>
                     <tbody id="brand-margin-table">
@@ -697,11 +727,11 @@
                     <thead>
                         <tr>
                             <th class="w-12">#</th>
-                            <th>Ходим</th>
-                            <th>Ишга келди</th>
-                            <th>Кетди</th>
-                            <th>Соатлар</th>
-                            <th>Статус</th>
+                            <th class="sortable" onclick="TableSorter.sort('timesheet-table', 1, 'text', this)">Ходим <span class="sort-icon text-gray-400">↕</span></th>
+                            <th class="sortable" onclick="TableSorter.sort('timesheet-table', 2, 'date', this)">Ишга келди <span class="sort-icon text-gray-400">↕</span></th>
+                            <th class="sortable" onclick="TableSorter.sort('timesheet-table', 3, 'date', this)">Кетди <span class="sort-icon text-gray-400">↕</span></th>
+                            <th class="sortable" onclick="TableSorter.sort('timesheet-table', 4, 'num', this)">Соатлар <span class="sort-icon text-gray-400">↕</span></th>
+                            <th class="sortable" onclick="TableSorter.sort('timesheet-table', 5, 'text', this)">Статус <span class="sort-icon text-gray-400">↕</span></th>
                             <th>Амаллар</th>
                         </tr>
                     </thead>
@@ -710,6 +740,8 @@
                     </tbody>
                 </table>
             </div>
+            <!-- Ходимлар табели пагинация блоки -->
+            <div id="timesheet-table-pagination-container" class="table-pagination-bar px-4 py-3 bg-gray-50 border-t border-gray-200 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-gray-600 hidden"></div>
         </div>
 
         <!-- Sales KPI Summary Cards -->
@@ -745,12 +777,12 @@
                     <thead>
                         <tr class="bg-purple-50/70 text-gray-700 text-xs border-b">
                             <th class="w-12 text-center py-3">#</th>
-                            <th class="py-3">Сотувчи</th>
-                            <th class="text-right py-3">Савдо ҳажми (сўм)</th>
-                            <th class="text-center py-3">Сотувлар сони</th>
-                            <th class="text-right py-3 text-red-600 font-bold">Қарздорлик суммаси</th>
-                            <th class="text-right py-3 text-green-700 font-bold">KPI бонус (2%)</th>
-                            <th class="text-center py-3">Бонус ҳолати</th>
+                            <th class="py-3 sortable" onclick="TableSorter.sort('kpi-table', 1, 'text', this)">Сотувчи <span class="sort-icon text-gray-400">↕</span></th>
+                            <th class="text-right py-3 sortable" onclick="TableSorter.sort('kpi-table', 2, 'num', this)">Савдо ҳажми (сўм) <span class="sort-icon text-gray-400">↕</span></th>
+                            <th class="text-center py-3 sortable" onclick="TableSorter.sort('kpi-table', 3, 'num', this)">Сотувлар сони <span class="sort-icon text-gray-400">↕</span></th>
+                            <th class="text-right py-3 text-red-600 font-bold sortable" onclick="TableSorter.sort('kpi-table', 4, 'num', this)">Қарздорлик суммаси <span class="sort-icon text-gray-400">↕</span></th>
+                            <th class="text-right py-3 text-green-700 font-bold sortable" onclick="TableSorter.sort('kpi-table', 5, 'num', this)">KPI бонус (2%) <span class="sort-icon text-gray-400">↕</span></th>
+                            <th class="text-center py-3 sortable" onclick="TableSorter.sort('kpi-table', 6, 'text', this)">Бонус ҳолати <span class="sort-icon text-gray-400">↕</span></th>
                         </tr>
                     </thead>
                     <tbody id="kpi-table">
@@ -758,6 +790,8 @@
                     </tbody>
                 </table>
             </div>
+            <!-- KPI пагинация блоки -->
+            <div id="kpi-table-pagination-container" class="table-pagination-bar px-4 py-3 bg-gray-50 border-t border-gray-200 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-gray-600 hidden"></div>
         </div>
     </section>
 
@@ -856,11 +890,21 @@
             <div class="overflow-x-auto">
                 <table>
                     <thead>
-                        <tr><th>#</th><th>Исм</th><th>Роль</th><th>Телефон/TG</th><th>Ҳудуд</th><th>Статус</th><th>Рефераль код</th></tr>
+                        <tr>
+                            <th class="w-12">#</th>
+                            <th class="sortable" onclick="TableSorter.sort('partners-table', 1, 'text', this)">Исм <span class="sort-icon text-gray-400">↕</span></th>
+                            <th class="sortable" onclick="TableSorter.sort('partners-table', 2, 'text', this)">Роль <span class="sort-icon text-gray-400">↕</span></th>
+                            <th class="sortable" onclick="TableSorter.sort('partners-table', 3, 'text', this)">Телефон/TG <span class="sort-icon text-gray-400">↕</span></th>
+                            <th class="sortable" onclick="TableSorter.sort('partners-table', 4, 'text', this)">Ҳудуд <span class="sort-icon text-gray-400">↕</span></th>
+                            <th class="sortable" onclick="TableSorter.sort('partners-table', 5, 'text', this)">Статус <span class="sort-icon text-gray-400">↕</span></th>
+                            <th class="sortable" onclick="TableSorter.sort('partners-table', 6, 'text', this)">Рефераль код <span class="sort-icon text-gray-400">↕</span></th>
+                        </tr>
                     </thead>
                     <tbody id="partners-table"><tr><td colspan="7" class="text-center text-gray-400 py-8">Маълумотлар юкланмоқда...</td></tr></tbody>
                 </table>
             </div>
+            <!-- Ҳамкорлар пагинация блоки -->
+            <div id="partners-table-pagination-container" class="table-pagination-bar px-4 py-3 bg-gray-50 border-t border-gray-200 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-gray-600 hidden"></div>
         </div>
     </section>
 
@@ -917,14 +961,14 @@
                 <table>
                     <thead>
                         <tr>
-                            <th class="w-12 text-center">#</th>
-                            <th>Ким берди</th>
-                            <th>Ижрочи</th>
-                            <th>Берилган вақти</th>
-                            <th>Топшириқ мазмуни</th>
-                            <th>Овозли хабар</th>
-                            <th>Муддати (Дедлайн)</th>
-                            <th>Статус</th>
+                            <th class="w-12 text-center sortable" onclick="TableSorter.sort('tasks-table', 0, 'num', this)"># <span class="sort-icon text-gray-400">↕</span></th>
+                            <th class="sortable" onclick="TableSorter.sort('tasks-table', 1, 'text', this)">Ким берди <span class="sort-icon text-gray-400">↕</span></th>
+                            <th class="sortable" onclick="TableSorter.sort('tasks-table', 2, 'text', this)">Ижрочи <span class="sort-icon text-gray-400">↕</span></th>
+                            <th class="sortable" onclick="TableSorter.sort('tasks-table', 3, 'date', this)">Берилган вақти <span class="sort-icon text-gray-400">↕</span></th>
+                            <th class="sortable" onclick="TableSorter.sort('tasks-table', 4, 'text', this)">Топшириқ мазмуни <span class="sort-icon text-gray-400">↕</span></th>
+                            <th>Бириктирилган файл / Овоз</th>
+                            <th class="sortable" onclick="TableSorter.sort('tasks-table', 6, 'date', this)">Муддати (Дедлайн) <span class="sort-icon text-gray-400">↕</span></th>
+                            <th class="sortable" onclick="TableSorter.sort('tasks-table', 7, 'text', this)">Статус <span class="sort-icon text-gray-400">↕</span></th>
                             <th>Амаллар</th>
                         </tr>
                     </thead>
@@ -993,6 +1037,18 @@
                     <audio id="voice-preview-audio" controls class="w-full h-9 rounded-lg"></audio>
                     <p class="text-[11px] text-green-700 font-medium mt-1">✅ Овоз ёзиб олинди! Тасдиқлашдан олдин тинглаб кўришингиз мумкин.</p>
                 </div>
+            </div>
+
+            <!-- Attachment File / Photo Component -->
+            <div class="bg-gray-50 border border-gray-200 rounded-xl p-3.5 space-y-2">
+                <label class="text-xs font-semibold text-gray-700 flex items-center gap-1.5">
+                    <span>📎</span>
+                    <span>Файл ёки расм бириктириш (ихтиёрий)</span>
+                </label>
+                <div class="flex items-center gap-2">
+                    <input type="file" id="task-attachment-file" class="text-xs text-gray-600 file:mr-2 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 cursor-pointer">
+                </div>
+                <p class="text-[11px] text-gray-400">Ҳужжат (PDF, Excel, Word) ёки расм (JPG, PNG) юклашингиз мумкин</p>
             </div>
             <div>
                 <label class="text-xs font-semibold text-gray-600">Ижрочи ходим *</label>
@@ -1275,6 +1331,43 @@
         <div class="px-6 py-3 border-t border-gray-200 flex items-center justify-between bg-gray-50 text-xs text-gray-500">
             <span>💡 Ходим телефондан геолокация юборганда тизим ушбу рўйхатдаги барча фаол объектлар билан автоматик солиштиради.</span>
             <button onclick="closeWorkplacesModal()" class="btn bg-gray-200 hover:bg-gray-300 text-gray-700 text-xs py-1.5 px-4 rounded-lg">Ёпиш</button>
+        </div>
+    </div>
+</div>
+
+<!-- ═══════════════ MODAL: МАНБА ҲУЖЖАТ ВА БАТАФСИЛ КЎРИНИШ ═══════════════ -->
+<div id="sourceDataModal" class="modal-overlay hidden" style="z-index: 2000 !important;" onclick="if(event.target === this) closeSourceDataModal()">
+    <div class="modal-dialog-box bg-white rounded-2xl shadow-2xl max-w-2xl w-full overflow-hidden border border-gray-100 animate-in fade-in zoom-in duration-200">
+        <!-- Header -->
+        <div class="bg-gradient-to-r from-blue-900 via-indigo-900 to-slate-900 text-white px-6 py-4 flex items-center justify-between flex-shrink-0">
+            <div class="flex items-center gap-3">
+                <span id="sourceModalIcon" class="text-2xl p-2 bg-white/10 rounded-xl">📄</span>
+                <div>
+                    <h3 id="sourceModalTitle" class="font-bold text-base leading-tight">Манба ҳужжат ва маълумотлари</h3>
+                    <p id="sourceModalSubtitle" class="text-xs text-blue-200 mt-0.5">МойСклад API ва маълумотлар базаси Live манбаси</p>
+                </div>
+            </div>
+            <button onclick="closeSourceDataModal()" class="text-white/70 hover:text-white text-2xl font-bold leading-none p-1">&times;</button>
+        </div>
+
+        <!-- Body -->
+        <div id="sourceModalBody" class="p-6 space-y-4 text-sm text-gray-700 flex-1 overflow-y-auto max-h-[70vh]">
+            <!-- Injected dynamically -->
+        </div>
+
+        <!-- Footer -->
+        <div class="px-6 py-3.5 border-t border-gray-200 flex flex-wrap items-center justify-between gap-3 bg-gray-50 text-xs text-gray-600 flex-shrink-0">
+            <div id="sourceModalFooterText" class="flex items-center gap-1.5 text-gray-500">
+                <span>🛡️ Diyor Group Экотизими</span>
+            </div>
+            <div class="flex items-center gap-2">
+                <a id="sourceModalMoySkladLink" href="#" target="_blank" class="btn btn-primary text-xs py-1.5 px-3 flex items-center gap-1.5 hidden shadow-sm">
+                    <span>🔗</span> <span>МойСклад'да очиш</span>
+                </a>
+                <button onclick="closeSourceDataModal()" class="btn bg-gray-200 hover:bg-gray-300 text-gray-700 text-xs py-1.5 px-4 rounded-lg font-medium">
+                    Ёпиш
+                </button>
+            </div>
         </div>
     </div>
 </div>
@@ -2299,10 +2392,13 @@ function renderNonLiquidTable() {
                 <td class="text-gray-400 text-xs text-center font-mono">${rowNum}</td>
                 <td class="font-medium text-gray-900">
                     <div class="flex items-center gap-1.5 flex-wrap">
-                        <span>${escapeHtml(item.name || '—')}</span>
+                        <a href="javascript:void(0)" onclick="openProductSourceModal('${escapeJs(item.id || item.product_id || item.sku || '')}', '${escapeJs(item.name || '')}', '${escapeJs(item.sku || '')}')" class="text-blue-600 hover:text-blue-800 hover:underline font-semibold flex items-center gap-1 text-left">
+                            <span>${escapeHtml(item.name || '—')}</span>
+                            <span class="text-xs text-blue-400">↗</span>
+                        </a>
                         ${item.brand ? `<span class="badge bg-purple-100 text-purple-700 font-bold">${escapeHtml(item.brand)}</span>` : ''}
                     </div>
-                    <div class="text-xs text-gray-400 font-mono mt-0.5">SKU: ${escapeHtml(item.sku || '—')}</div>
+                    <div class="text-xs text-gray-400 font-mono mt-0.5">SKU: <a href="javascript:void(0)" onclick="openProductSourceModal('${escapeJs(item.id || item.product_id || item.sku || '')}', '${escapeJs(item.name || '')}', '${escapeJs(item.sku || '')}')" class="hover:text-blue-600 hover:underline">${escapeHtml(item.sku || '—')}</a></div>
                 </td>
                 <td><span class="badge badge-blue">${escapeHtml(item.category || item.path_name || 'Сантехника')}</span></td>
                 <td class="text-center">${getMatrixBadgeHtml(matCat)}</td>
@@ -2677,10 +2773,13 @@ function renderSupplierItemRow(sup, it, globalIdx, isOrdered, orderNo) {
         <td class="py-3 px-3 text-center text-gray-400 text-xs font-mono">${globalIdx}</td>
         <td class="py-3 px-4 font-medium text-gray-900 max-w-xs">
             <div class="flex items-center gap-1.5 flex-wrap">
-                <span class="font-semibold text-gray-900 leading-snug">${escapeHtml(it.name || '—')}</span>
+                <a href="javascript:void(0)" onclick="openProductSourceModal('${escapeJs(pId)}', '${escapeJs(it.name || '')}', '${escapeJs(it.sku || '')}')" class="font-semibold text-blue-600 hover:text-blue-800 hover:underline leading-snug flex items-center gap-1 group text-left">
+                    <span>${escapeHtml(it.name || '—')}</span>
+                    <span class="text-xs text-blue-400 group-hover:text-blue-600">↗</span>
+                </a>
                 ${it.brand ? `<span class="badge bg-purple-100 text-purple-700 font-bold text-xs">${escapeHtml(it.brand)}</span>` : ''}
             </div>
-            <div class="text-xs text-gray-400 font-mono mt-0.5">SKU: ${escapeHtml(it.sku || '—')}</div>
+            <div class="text-xs text-gray-400 font-mono mt-0.5">SKU: <a href="javascript:void(0)" onclick="openProductSourceModal('${escapeJs(pId)}', '${escapeJs(it.name || '')}', '${escapeJs(it.sku || '')}')" class="hover:text-blue-600 hover:underline">${escapeHtml(it.sku || '—')}</a></div>
         </td>
         <td class="py-3 px-3 text-center num">
             <span class="badge ${stockQty <= 2 ? 'badge-red' : 'badge-yellow'} font-bold">${fmt(stockQty)} дона</span>
@@ -2846,12 +2945,12 @@ function renderLowStockSuppliers() {
                     <thead class="bg-gray-50 text-gray-700 text-xs font-semibold uppercase tracking-wider border-b border-gray-200">
                         <tr>
                             <th class="py-2.5 px-3 w-10 text-center">#</th>
-                            <th class="py-2.5 px-4">Товар номи ва SKU</th>
-                            <th class="py-2.5 px-3 text-center">Қолдиқ</th>
-                            <th class="py-2.5 px-3 text-center">6 ойлик сотув</th>
-                            <th class="py-2.5 px-3 text-center">ABC/XYZ тоифаси</th>
-                            <th class="py-2.5 px-4 text-center bg-blue-50 text-blue-900 border-x border-blue-100">Тавсия миқдори</th>
-                            <th class="py-2.5 px-4">Буюртма асоси</th>
+                            <th class="py-2.5 px-4 sortable" onclick="TableSorter.sort('sup-tbody-${sId}', 1, 'text', this)">Товар номи ва SKU <span class="sort-icon text-gray-400">↕</span></th>
+                            <th class="py-2.5 px-3 text-center sortable" onclick="TableSorter.sort('sup-tbody-${sId}', 2, 'num', this)">Қолдиқ <span class="sort-icon text-gray-400">↕</span></th>
+                            <th class="py-2.5 px-3 text-center sortable" onclick="TableSorter.sort('sup-tbody-${sId}', 3, 'num', this)">6 ойлик сотув <span class="sort-icon text-gray-400">↕</span></th>
+                            <th class="py-2.5 px-3 text-center sortable" onclick="TableSorter.sort('sup-tbody-${sId}', 4, 'text', this)">ABC/XYZ тоифаси <span class="sort-icon text-gray-400">↕</span></th>
+                            <th class="py-2.5 px-4 text-center bg-blue-50 text-blue-900 border-x border-blue-100 sortable" onclick="TableSorter.sort('sup-tbody-${sId}', 5, 'num', this)">Тавсия миқдори <span class="sort-icon text-gray-400">↕</span></th>
+                            <th class="py-2.5 px-4 sortable" onclick="TableSorter.sort('sup-tbody-${sId}', 6, 'text', this)">Буюртма асоси <span class="sort-icon text-gray-400">↕</span></th>
                         </tr>
                     </thead>
                     <tbody class="divide-y divide-gray-100" id="sup-tbody-${sId}">
@@ -2869,20 +2968,25 @@ function renderLowStockSuppliers() {
                     <span><i>Керак бўлса миқдорларни ўзгартиринг. CZ (ноликвид) товарлар чиқариб ташланиб, ягона МойСклад «Заказ поставщику» ҳужжатига жамланади.</i></span>
                 </div>
 
-                ${isOrdered ? `
-                    <div class="bg-green-100 text-green-900 border border-green-300 font-bold text-sm py-2 px-5 rounded-lg flex items-center gap-2">
-                        <span>✅ МойСклад'да буюртма яратилди (№${orderNo})</span>
-                    </div>
-                ` : `
-                    <button id="btn-bulk-${sId}"
-                        onclick="submitBulkSupplierOrder('${sId}', '${escapeJs(sup.supplier_name)}')"
-                        class="btn btn-primary font-bold text-sm py-2.5 px-5 shadow-sm hover:opacity-95 transition-all flex items-center gap-2">
-                        <span>🛒 ${escapeHtml(sup.supplier_name)} бўйича МойСклад'да ягона буюртма яратиш</span>
-                        <span id="btn-badge-${sId}" class="badge bg-white text-blue-900 font-extrabold text-xs ml-1 py-0.5 px-2.5 rounded-full">
-                            ${sup.display_active_count || sup.display_items_count} та товар • ${fmt(sup.display_estimated_sum)} сўм
-                        </span>
+                <div class="flex items-center gap-2 flex-wrap">
+                    <button type="button" onclick="exportSupplierOrderExcel('${sId}')" class="btn bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs py-2 px-3.5 rounded-lg shadow-xs flex items-center gap-1.5 transition">
+                        <span>📥</span> <span>Excel Спецификация</span>
                     </button>
-                `}
+                    ${isOrdered ? `
+                        <div class="bg-green-100 text-green-900 border border-green-300 font-bold text-sm py-2 px-5 rounded-lg flex items-center gap-2">
+                            <span>✅ МойСклад'да буюртма яратилди (№${orderNo})</span>
+                        </div>
+                    ` : `
+                        <button id="btn-bulk-${sId}"
+                            onclick="submitBulkSupplierOrder('${sId}', '${escapeJs(sup.supplier_name)}')"
+                            class="btn btn-primary font-bold text-sm py-2.5 px-5 shadow-sm hover:opacity-95 transition-all flex items-center gap-2">
+                            <span>🛒 ${escapeHtml(sup.supplier_name)} бўйича МойСклад'да ягона буюртма яратиш</span>
+                            <span id="btn-badge-${sId}" class="badge bg-white text-blue-900 font-extrabold text-xs ml-1 py-0.5 px-2.5 rounded-full">
+                                ${sup.display_active_count || sup.display_items_count} та товар • ${fmt(sup.display_estimated_sum)} сўм
+                            </span>
+                        </button>
+                    `}
+                </div>
             </div>
         </div>
         `;
@@ -3150,7 +3254,12 @@ function renderDebtorsTable() {
             <tr class="${isBlocked ? 'bg-red-50/70 hover:bg-red-100/50' : 'hover:bg-gray-50/70'} transition">
                 <td class="text-gray-400 font-semibold text-center text-xs">${rowNum}</td>
                 <td>
-                    <div class="font-semibold text-gray-900">${escapeHtml(d.name || '—')}</div>
+                    <div class="font-semibold text-gray-900">
+                        <a href="javascript:void(0)" onclick="openCounterpartySourceModal('${escapeJs(cid)}', '${escapeJs(d.name || '')}', 'debtor')" class="text-blue-600 hover:text-blue-800 hover:underline flex items-center gap-1 text-left">
+                            <span>${escapeHtml(d.name || '—')}</span>
+                            <span class="text-xs text-blue-400">↗</span>
+                        </a>
+                    </div>
                     <div class="text-xs text-purple-700 font-medium mt-0.5">👤 Масъул сотувчи: <b>${escapeHtml(d.seller_name || 'Тайинланмаган')}</b></div>
                     <div class="text-xs text-gray-400 font-mono mt-0.5">${d.phone && d.phone !== '—' ? '📞 ' + escapeHtml(d.phone) : ''} ${d.last_demand_date && d.last_demand_date !== '—' ? '• Савдо: ' + escapeHtml(d.last_demand_date) : ''}</div>
                 </td>
@@ -3191,9 +3300,9 @@ async function setDebtMode(mode) {
 
         document.getElementById('debts-table-head').innerHTML = `
             <th style="width: 40px;">#</th>
-            <th>Контрагент</th>
-            <th>Қарз суммаси</th>
-            <th>Кечиккан кун (Статус)</th>
+            <th class="sortable" onclick="TableSorter.sort('debtors-table', 1, 'text', this)">Контрагент <span class="sort-icon text-gray-400">↕</span></th>
+            <th class="sortable" onclick="TableSorter.sort('debtors-table', 2, 'num', this)">Қарз суммаси <span class="sort-icon text-gray-400">↕</span></th>
+            <th class="sortable" onclick="TableSorter.sort('debtors-table', 3, 'num', this)">Кечиккан кун (Статус) <span class="sort-icon text-gray-400">↕</span></th>
             <th style="width: 250px;">Амаллар</th>
         `;
 
@@ -3216,9 +3325,9 @@ async function setDebtMode(mode) {
 
         document.getElementById('debts-table-head').innerHTML = `
             <th style="width: 40px;">#</th>
-            <th>Таъминотчи / Завод</th>
-            <th>Қарз суммаси (Биз тўлайдиган)</th>
-            <th>Статус</th>
+            <th class="sortable" onclick="TableSorter.sort('debtors-table', 1, 'text', this)">Таъминотчи / Завод <span class="sort-icon text-gray-400">↕</span></th>
+            <th class="sortable" onclick="TableSorter.sort('debtors-table', 2, 'num', this)">Қарз суммаси (Биз тўлайдиган) <span class="sort-icon text-gray-400">↕</span></th>
+            <th class="sortable" onclick="TableSorter.sort('debtors-table', 3, 'text', this)">Статус <span class="sort-icon text-gray-400">↕</span></th>
             <th style="width: 200px;">Амаллар</th>
         `;
 
@@ -3285,7 +3394,12 @@ async function loadCreditorsList() {
             <tr class="hover:bg-gray-50/70 transition">
                 <td class="text-gray-400 font-semibold text-center text-xs">${rowNum}</td>
                 <td>
-                    <div class="font-medium text-gray-900">${escapeHtml(c.name || '—')}</div>
+                    <div class="font-medium text-gray-900">
+                        <a href="javascript:void(0)" onclick="openCounterpartySourceModal('${escapeJs(cid)}', '${escapeJs(c.name || '')}', 'creditor')" class="text-blue-600 hover:text-blue-800 hover:underline flex items-center gap-1 text-left">
+                            <span>${escapeHtml(c.name || '—')}</span>
+                            <span class="text-xs text-blue-400">↗</span>
+                        </a>
+                    </div>
                     <div class="text-xs text-gray-500 font-mono">${c.phone && c.phone !== '—' ? '📞 ' + escapeHtml(c.phone) : ''} ${c.last_demand_date && c.last_demand_date !== '—' ? '• Ҳужжат: ' + escapeHtml(c.last_demand_date) : ''}</div>
                 </td>
                 <td class="num font-bold text-emerald-700">${c.formatted_debt || fmt(c.debt_sum || 0) + ' сўм'}</td>
@@ -3399,21 +3513,34 @@ async function loadCashFlow(forceRefresh = false) {
         document.getElementById('cf-profit').textContent = fmt(netProfit) + ' сўм';
         document.getElementById('cf-margin').textContent = Number(marginPct).toFixed(1) + '%';
 
-        // 2. Daily Cash Flow Table (Кунлик кирим/чиқимлар)
-        const dailyRows = data.daily_flow || [];
+        // 2. Render Cash Flow Trend Chart (Chart.js)
+        renderCashflowTrendChart(dailyRows);
+
+        // 3. Daily Cash Flow Table (Кунлик кирим/чиқимлар)
         if (cfTable) {
             initPagination('cashflow-table', dailyRows, (r, idx, rowNum) => {
                 const balance = r.balance ?? ((r.income || 0) - (r.expense || 0));
                 const balanceClass = balance > 0 ? 'text-green-600 font-bold' : balance < 0 ? 'text-red-600 font-bold' : 'text-gray-600 font-bold';
+                const dateVal = r.date || '—';
                 return `
                     <tr class="data-row hover:bg-gray-50 transition">
-                        <td class="num font-semibold text-gray-800">${r.date || '—'}</td>
+                        <td class="num font-semibold text-gray-800">
+                            <a href="javascript:void(0)" onclick="openDailyCashflowSourceModal('${escapeJs(dateVal)}')" class="text-blue-600 hover:text-blue-800 hover:underline flex items-center gap-1 font-bold">
+                                <span>${dateVal}</span>
+                                <span class="text-xs text-blue-400">↗</span>
+                            </a>
+                        </td>
                         <td class="num text-green-600 font-medium">+${fmt(r.income || 0)} сўм</td>
                         <td class="num text-red-600 font-medium">-${fmt(r.expense || 0)} сўм</td>
                         <td class="num ${balanceClass}">${balance > 0 ? '+' : ''}${fmt(balance)} сўм</td>
+                        <td>
+                            <button onclick="openDailyCashflowSourceModal('${escapeJs(dateVal)}')" class="btn bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs py-1 px-2.5 rounded border border-blue-200 flex items-center gap-1">
+                                <span>📑</span> <span>Ҳужжатлар</span>
+                            </button>
+                        </td>
                     </tr>
                 `;
-            }, 10, { emptyHtml: '<tr><td colspan="4" class="text-center text-gray-500 py-8">Ҳисобот даврида молиявий ҳаракатлар топилмади</td></tr>' });
+            }, 10, { emptyHtml: '<tr><td colspan="5" class="text-center text-gray-500 py-8">Ҳисобот даврида молиявий ҳаракатлар топилмади</td></tr>' });
         }
 
         if (forceRefresh) {
@@ -4206,67 +4333,66 @@ async function loadTimesheet(isBackground = false) {
         if (badgeCount) badgeCount.textContent = `${timesheets.length} та ёзув`;
 
         if (tbodyTS) {
-            if (!timesheets.length) {
-                tbodyTS.innerHTML = '<tr><td colspan="7" class="text-center text-gray-400 py-8">Бугун ҳозирча ҳеч ким ишга келишни қайд этмаган</td></tr>';
-            } else {
-                tbodyTS.innerHTML = timesheets.map((t, i) => {
-                    let statusBadge = 'badge-blue';
-                    let statusIcon = 'ℹ️';
-                    const st = t.status || '';
+            initPagination('timesheet-table', timesheets, (t, i, rowNum) => {
+                let statusBadge = 'badge-blue';
+                let statusIcon = 'ℹ️';
+                const st = t.status || '';
 
-                    if (st.includes('Ўз вақтида')) {
-                        statusBadge = 'badge-green';
-                        statusIcon = '✅';
-                    } else if (st.includes('Кечикди')) {
-                        statusBadge = 'badge-yellow';
-                        statusIcon = '⚠️';
-                    } else if (t.raw_status === 'CHECKED_OUT' || st.includes('якунланди')) {
-                        statusBadge = 'badge-blue';
-                        statusIcon = '🏁';
-                    }
+                if (st.includes('Ўз вақтида')) {
+                    statusBadge = 'badge-green';
+                    statusIcon = '✅';
+                } else if (st.includes('Кечикди')) {
+                    statusBadge = 'badge-yellow';
+                    statusIcon = '⚠️';
+                } else if (t.raw_status === 'CHECKED_OUT' || st.includes('якунланди')) {
+                    statusBadge = 'badge-blue';
+                    statusIcon = '🏁';
+                }
 
-                    const checkinStr = t.checkin_time || '—';
-                    const checkoutStr = t.checkout_time || '—';
-                    const hoursStr = typeof t.total_hours === 'number' ? `${t.total_hours.toFixed(1)} соат` : (t.total_hours || 'Ишланмоқда');
+                const checkinStr = t.checkin_time || '—';
+                const checkoutStr = t.checkout_time || '—';
+                const hoursStr = typeof t.total_hours === 'number' ? `${t.total_hours.toFixed(1)} соат` : (t.total_hours || 'Ишланмоқда');
 
-                    const isWorking = t.raw_status === 'CHECKED_IN';
-                    const checkoutAction = isWorking
-                        ? `<button class="btn btn-primary text-xs py-1 px-2.5 flex items-center gap-1" onclick="doCheckout('${t.id}')"><span>🚪</span><span>Кетди</span></button>`
-                        : '';
+                const isWorking = t.raw_status === 'CHECKED_IN';
+                const checkoutAction = isWorking
+                    ? `<button class="btn btn-primary text-xs py-1 px-2.5 flex items-center gap-1" onclick="doCheckout('${t.id}')"><span>🚪</span><span>Кетди</span></button>`
+                    : '';
 
-                    const mapAction = t.map_url
-                        ? `<a href="${t.map_url}" target="_blank" class="btn bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs py-1 px-2 flex items-center gap-1" title="Google харитада GPS нуқтани кўриш"><span>📍</span><span>Карта</span></a>`
-                        : '';
+                const mapAction = t.map_url
+                    ? `<a href="${t.map_url}" target="_blank" class="btn bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs py-1 px-2 flex items-center gap-1" title="Google харитада GPS нуқтани кўриш"><span>📍</span><span>Карта</span></a>`
+                    : '';
 
-                    const isTg = (t.device_info || t.source || '').toLowerCase().includes('telegram');
-                    const sourceBadge = isTg
-                        ? '<span class="text-[10px] bg-sky-100 text-sky-800 font-bold px-1.5 py-0.5 rounded flex items-center gap-0.5" title="Telegram бот орқали қайд этилган">📱 Telegram</span>'
-                        : '<span class="text-[10px] bg-gray-100 text-gray-700 font-bold px-1.5 py-0.5 rounded flex items-center gap-0.5" title="Веб-браузер орқали қайд этилган">🌐 Web</span>';
+                const isTg = (t.device_info || t.source || '').toLowerCase().includes('telegram');
+                const sourceBadge = isTg
+                    ? '<span class="text-[10px] bg-sky-100 text-sky-800 font-bold px-1.5 py-0.5 rounded flex items-center gap-0.5" title="Telegram бот орқали қайд этилган">📱 Telegram</span>'
+                    : '<span class="text-[10px] bg-gray-100 text-gray-700 font-bold px-1.5 py-0.5 rounded flex items-center gap-0.5" title="Веб-браузер орқали қайд этилган">🌐 Web</span>';
 
-                    return `
-                        <tr class="hover:bg-gray-50/70 transition">
-                            <td class="text-gray-400">${i + 1}</td>
-                            <td>
-                                <div class="font-semibold text-gray-900 flex items-center gap-1.5">
+                return `
+                    <tr class="hover:bg-gray-50/70 transition">
+                        <td class="text-gray-400 font-bold text-center text-xs">${rowNum}</td>
+                        <td>
+                            <div class="font-semibold text-gray-900 flex items-center gap-1.5">
+                                <a href="javascript:void(0)" onclick="openEmployeeSourceModal('${escapeJs(t.employee_id || '')}', '${escapeJs(t.employee_name || '')}')" class="text-blue-600 hover:text-blue-800 hover:underline flex items-center gap-1 font-semibold text-left">
                                     <span>${escapeHtml(t.employee_name || '—')}</span>
-                                    ${sourceBadge}
-                                </div>
-                                <div class="text-xs text-indigo-700 font-medium">🏢 ${escapeHtml(t.object_name || 'Асосий дўкон')} <span class="text-gray-400 font-mono font-normal">• ID: ${t.employee_id} ${t.distance_meters != null ? '• ' + t.distance_meters + 'м' : ''}</span></div>
-                            </td>
-                            <td class="num font-medium text-gray-700">${checkinStr}</td>
-                            <td class="num font-medium text-gray-700">${checkoutStr}</td>
-                            <td class="num font-semibold text-gray-900">${hoursStr}</td>
-                            <td><span class="badge ${statusBadge}">${statusIcon} ${st}</span></td>
-                            <td>
-                                <div class="flex items-center gap-1.5">
-                                    ${checkoutAction}
-                                    ${mapAction}
-                                </div>
-                            </td>
-                        </tr>
-                    `;
-                }).join('');
-            }
+                                    <span class="text-xs text-blue-400">↗</span>
+                                </a>
+                                ${sourceBadge}
+                            </div>
+                            <div class="text-xs text-indigo-700 font-medium">🏢 ${escapeHtml(t.object_name || 'Асосий дўкон')} <span class="text-gray-400 font-mono font-normal">• ID: ${t.employee_id} ${t.distance_meters != null ? '• ' + t.distance_meters + 'м' : ''}</span></div>
+                        </td>
+                        <td class="num font-medium text-gray-700">${checkinStr}</td>
+                        <td class="num font-medium text-gray-700">${checkoutStr}</td>
+                        <td class="num font-semibold text-gray-900">${hoursStr}</td>
+                        <td><span class="badge ${statusBadge}">${statusIcon} ${st}</span></td>
+                        <td>
+                            <div class="flex items-center gap-1.5">
+                                ${checkoutAction}
+                                ${mapAction}
+                            </div>
+                        </td>
+                    </tr>
+                `;
+            }, 10, { emptyHtml: '<tr><td colspan="7" class="text-center text-gray-400 py-8">Бугун ҳозирча ҳеч ким ишга келишни қайд этмаган</td></tr>' });
         }
 
         // 2. Render Sales KPI Cards & Table
@@ -4291,53 +4417,53 @@ async function loadTimesheet(isBackground = false) {
         }
 
         if (tbodyKPI) {
-            if (!kpiList.length) {
-                tbodyKPI.innerHTML = '<tr><td colspan="7" class="text-center text-gray-400 py-8">МойСклад базасида савдолар топилмади</td></tr>';
-            } else {
-                tbodyKPI.innerHTML = kpiList.map((s, i) => {
-                    const isBlocked = !!(s.is_bonus_blocked || !s.can_payout || s.has_overdue_debt);
-                    const statusBadge = isBlocked
-                        ? `<span class="badge badge-red font-semibold text-xs py-1 px-2.5 rounded-lg inline-flex items-center gap-1 shadow-sm" title="${escapeHtml(s.blocked_debtors_info || '60+ кун кечиккан қарздор мижози бор')}">⚠️ Музлатилди</span>`
-                        : `<span class="badge badge-green font-semibold text-xs py-1 px-2.5 rounded-lg inline-flex items-center gap-1 shadow-sm">✅ Рухсат этилган</span>`;
+            initPagination('kpi-table', kpiList, (s, i, rowNum) => {
+                const isBlocked = !!(s.is_bonus_blocked || !s.can_payout || s.has_overdue_debt);
+                const statusBadge = isBlocked
+                    ? `<span class="badge badge-red font-semibold text-xs py-1 px-2.5 rounded-lg inline-flex items-center gap-1 shadow-sm" title="${escapeHtml(s.blocked_debtors_info || '60+ кун кечиккан қарздор мижози бор')}">⚠️ Музлатилди</span>`
+                    : `<span class="badge badge-green font-semibold text-xs py-1 px-2.5 rounded-lg inline-flex items-center gap-1 shadow-sm">✅ Рухсат этилган</span>`;
 
-                    const totalDebt = s.total_debt || 0;
-                    const debtHtml = totalDebt > 0
-                        ? `<div class="text-right font-mono">
-                             <div class="font-bold text-red-600 text-sm">${s.formatted_total_debt || fmt(totalDebt) + ' сўм'}</div>
-                             ${isBlocked ? `<div class="text-[11px] text-red-500 font-medium mt-0.5">⚠️ Кечиккан: ${s.formatted_overdue_debt || fmt(s.overdue_debt || 0) + ' сўм'}</div>` : ''}
-                           </div>`
-                        : `<div class="text-right text-xs text-green-600 font-semibold font-mono">0 сўм</div>`;
+                const totalDebt = s.total_debt || 0;
+                const debtHtml = totalDebt > 0
+                    ? `<div class="text-right font-mono">
+                         <div class="font-bold text-red-600 text-sm">${s.formatted_total_debt || fmt(totalDebt) + ' сўм'}</div>
+                         ${isBlocked ? `<div class="text-[11px] text-red-500 font-medium mt-0.5">⚠️ Кечиккан: ${s.formatted_overdue_debt || fmt(s.overdue_debt || 0) + ' сўм'}</div>` : ''}
+                       </div>`
+                    : `<div class="text-right text-xs text-green-600 font-semibold font-mono">0 сўм</div>`;
 
-                    const bonusHtml = isBlocked
-                        ? `<div class="text-right">
-                             <div class="line-through text-gray-400 text-xs font-mono">${s.formatted_bonus || fmt(s.bonus || s.kpi_bonus || 0) + ' сўм'}</div>
-                             <div class="text-xs text-red-600 font-bold mt-0.5 font-mono">0 сўм тўланади</div>
-                             <div class="text-[10px] text-amber-800 bg-amber-100/80 rounded px-1.5 py-0.5 mt-1 inline-block font-medium">⚠️ Муддати ўтган қарз бор</div>
-                           </div>`
-                        : `<div class="text-right font-mono">
-                             <span class="num text-green-700 font-bold text-sm">${s.formatted_bonus || fmt(s.bonus || s.kpi_bonus || 0) + ' сўм'}</span>
-                             <span class="text-xs text-green-600 font-normal">(${s.bonus_rate || '2.0%'})</span>
-                           </div>`;
+                const bonusHtml = isBlocked
+                    ? `<div class="text-right">
+                         <div class="line-through text-gray-400 text-xs font-mono">${s.formatted_bonus || fmt(s.bonus || s.kpi_bonus || 0) + ' сўм'}</div>
+                         <div class="text-xs text-red-600 font-bold mt-0.5 font-mono">0 сўм тўланади</div>
+                         <div class="text-[10px] text-amber-800 bg-amber-100/80 rounded px-1.5 py-0.5 mt-1 inline-block font-medium">⚠️ Муддати ўтган қарз бор</div>
+                       </div>`
+                    : `<div class="text-right font-mono">
+                         <span class="num text-green-700 font-bold text-sm">${s.formatted_bonus || fmt(s.bonus || s.kpi_bonus || 0) + ' сўм'}</span>
+                         <span class="text-xs text-green-600 font-normal">(${s.bonus_rate || '2.0%'})</span>
+                       </div>`;
 
-                    return `
-                    <tr class="hover:bg-gray-50/80 border-b transition ${isBlocked ? 'bg-red-50/20' : ''}">
-                        <td class="text-gray-400 font-bold text-center text-xs py-3">${i + 1}</td>
-                        <td class="font-bold text-gray-900 py-3">
-                            <div class="flex items-center gap-1.5">
-                                <span>👤</span>
-                                <span>${escapeHtml(s.salesperson || s.employee_name || s.name || '—')}</span>
-                            </div>
-                            ${isBlocked && s.blocked_debtors_info ? `<div class="text-[11px] text-red-600 font-normal mt-1 pl-5 leading-tight">⚠️ Кечиккан мижозлар: ${escapeHtml(s.blocked_debtors_info)}</div>` : ''}
-                        </td>
-                        <td class="num font-bold text-gray-900 text-right py-3">${s.formatted_sales || fmt(s.total_sales || s.sales_volume || 0) + ' сўм'}</td>
-                        <td class="num font-semibold text-center py-3">${s.deals_count || s.sales_count || 0} та</td>
-                        <td class="py-3">${debtHtml}</td>
-                        <td class="num bg-green-50/20 py-3">${bonusHtml}</td>
-                        <td class="text-center py-3">${statusBadge}</td>
-                    </tr>
-                    `;
-                }).join('');
-            }
+                const sName = s.salesperson || s.employee_name || s.name || '—';
+                return `
+                <tr class="hover:bg-gray-50/80 border-b transition ${isBlocked ? 'bg-red-50/20' : ''}">
+                    <td class="text-gray-400 font-bold text-center text-xs py-3">${rowNum}</td>
+                    <td class="font-bold text-gray-900 py-3">
+                        <div class="flex items-center gap-1.5">
+                            <span>👤</span>
+                            <a href="javascript:void(0)" onclick="openEmployeeSourceModal('${escapeJs(s.salesperson_id || s.employee_id || '')}', '${escapeJs(sName)}')" class="text-blue-600 hover:text-blue-800 hover:underline flex items-center gap-1 font-semibold text-left">
+                                <span>${escapeHtml(sName)}</span>
+                                <span class="text-xs text-blue-400">↗</span>
+                            </a>
+                        </div>
+                        ${isBlocked && s.blocked_debtors_info ? `<div class="text-[11px] text-red-600 font-normal mt-1 pl-5 leading-tight">⚠️ Кечиккан мижозлар: ${escapeHtml(s.blocked_debtors_info)}</div>` : ''}
+                    </td>
+                    <td class="num font-bold text-gray-900 text-right py-3">${s.formatted_sales || fmt(s.total_sales || s.sales_volume || 0) + ' сўм'}</td>
+                    <td class="num font-semibold text-center py-3">${s.deals_count || s.sales_count || 0} та</td>
+                    <td class="py-3">${debtHtml}</td>
+                    <td class="num bg-green-50/20 py-3">${bonusHtml}</td>
+                    <td class="text-center py-3">${statusBadge}</td>
+                </tr>
+                `;
+            }, 10, { emptyHtml: '<tr><td colspan="7" class="text-center text-gray-400 py-8">МойСклад базасида савдолар топилмади</td></tr>' });
         }
 
     } catch (err) {
@@ -4543,12 +4669,7 @@ async function loadReferralStats(forceRefresh = false) {
         const countBadge = document.getElementById('partners-count-badge');
         if (countBadge) countBadge.textContent = `${partners.length} та ҳамкор`;
 
-        if (!partners.length) {
-            tbody.innerHTML = '<tr><td colspan="7" class="text-center text-gray-400 py-8">МойСклад базасида ҳамкорлар топилмади</td></tr>';
-            return;
-        }
-
-        tbody.innerHTML = partners.map((p, i) => {
+        initPagination('partners-table', partners, (p, i, rowNum) => {
             let statusBadge = 'badge-gray';
             let statusIcon = '⏳';
             if (p.status === 'ACTIVE') {
@@ -4569,11 +4690,19 @@ async function loadReferralStats(forceRefresh = false) {
                 ? `<div class="text-xs text-green-700 font-semibold mt-0.5">Савдо: ${fmt(p.total_sales)} сўм • 5% Бонус: <span class="bg-green-100 text-green-800 px-1 rounded">${fmt(p.bonus_amount)} сўм</span></div>`
                 : '';
 
+            const pName = p.name || '—';
+            const pId = p.id || p.referral_code || '';
+
             return `
-                <tr>
-                    <td class="text-gray-400 font-bold">${i + 1}</td>
+                <tr class="hover:bg-gray-50/70 transition">
+                    <td class="text-gray-400 font-bold text-center text-xs">${rowNum}</td>
                     <td>
-                        <div class="font-bold text-gray-900">${p.name || '—'}</div>
+                        <div class="font-bold text-gray-900">
+                            <a href="javascript:void(0)" onclick="openPartnerSourceModal('${escapeJs(pId)}', '${escapeJs(pName)}')" class="text-blue-600 hover:text-blue-800 hover:underline flex items-center gap-1 font-semibold text-left">
+                                <span>${escapeHtml(pName)}</span>
+                                <span class="text-xs text-blue-400">↗</span>
+                            </a>
+                        </div>
                         ${salesSub}
                     </td>
                     <td><span class="text-xs font-semibold bg-gray-100 text-gray-700 px-2 py-1 rounded">${p.role || '—'}</span></td>
@@ -4588,7 +4717,7 @@ async function loadReferralStats(forceRefresh = false) {
                     </td>
                 </tr>
             `;
-        }).join('');
+        }, 10, { emptyHtml: '<tr><td colspan="7" class="text-center text-gray-400 py-8">МойСклад базасида ҳамкорлар топилмади</td></tr>' });
 
     } catch (err) {
         console.error('loadReferralStats error:', err);
@@ -4836,6 +4965,8 @@ async function openTaskModal() {
     document.getElementById('task-description').value = '';
     document.getElementById('task-assignee').value = '';
     document.getElementById('task-observer').value = '';
+    const fileInput = document.getElementById('task-attachment-file');
+    if (fileInput) fileInput.value = '';
     _selectedAssigneeName = '';
     _selectedObserverName = '';
     document.getElementById('taskModal').classList.remove('hidden');
@@ -4843,6 +4974,8 @@ async function openTaskModal() {
 
 function closeTaskModal() {
     resetVoiceRecording();
+    const fileInput = document.getElementById('task-attachment-file');
+    if (fileInput) fileInput.value = '';
     document.getElementById('taskModal').classList.add('hidden');
 }
 
@@ -4856,6 +4989,29 @@ async function createTask() {
     if (!title) { toast('Мавзу киритилмади!', true); return; }
     if (!assigneeId) { toast('Ижрочи танланмади!', true); return; }
 
+    const fileInput = document.getElementById('task-attachment-file');
+    let attachmentUrl = null;
+    let attachmentName = null;
+
+    if (fileInput && fileInput.files && fileInput.files[0]) {
+        try {
+            toast('⏳ Файл юкланмоқда...');
+            const uploadData = new FormData();
+            uploadData.append('file', fileInput.files[0]);
+            const upRes = await fetch(API + '/tasks/upload-attachment', {
+                method: 'POST',
+                body: uploadData
+            });
+            if (upRes.ok) {
+                const upJson = await upRes.json();
+                attachmentUrl = upJson.url;
+                attachmentName = upJson.filename;
+            }
+        } catch (upErr) {
+            console.warn('Attachment upload failed:', upErr);
+        }
+    }
+
     // Агар овозли хабар ёзилган бўлса, FormData орқали юбориш
     if (currentVoiceBlob) {
         const formData = new FormData();
@@ -4866,6 +5022,8 @@ async function createTask() {
         if (observerId) formData.append('observer_id', observerId);
         if (observerId && _selectedObserverName) formData.append('observer_name', _selectedObserverName);
         if (deadline) formData.append('deadline', deadline);
+        if (attachmentUrl) formData.append('attachment_url', attachmentUrl);
+        if (attachmentName) formData.append('attachment_name', attachmentName);
 
         const ext = currentVoiceBlob.type.includes('ogg') ? 'voice.ogg' : 'voice.webm';
         formData.append('voice_file', currentVoiceBlob, ext);
@@ -4877,7 +5035,7 @@ async function createTask() {
             });
             const data = await res.json();
             if (res.ok) {
-                toast('🎙 Топшириқ овозли хабар билан яратилди ва Telegram орқали юборилди!');
+                toast('🎙 Топшириқ овозли хабар ва файл билан яратилди!');
                 closeTaskModal();
                 loadTasks();
             } else {
@@ -4897,7 +5055,9 @@ async function createTask() {
         assigned_name: _selectedAssigneeName || 'Ходим',
         observer_id: observerId ? parseInt(observerId) : null,
         observer_name: observerId ? (_selectedObserverName || null) : null,
-        deadline: deadline || null
+        deadline: deadline || null,
+        attachment_url: attachmentUrl,
+        attachment_name: attachmentName
     };
 
     try {
@@ -4929,7 +5089,7 @@ function startTasksAutoPolling() {
         if (tasksSection && !tasksSection.classList.contains('hidden')) {
             loadTasks(currentTaskStatusFilter, true);
         }
-    }, 20000);
+    }, 15000);
 }
 
 async function loadTasks(statusFilter, isSilent = false) {
@@ -4993,7 +5153,6 @@ async function loadTasks(statusFilter, isSilent = false) {
             try {
                 const dl = new Date(t.deadline);
                 deadlineStr = dl.toLocaleDateString('ru-RU') + ' ' + dl.toLocaleTimeString('ru-RU', {hour:'2-digit', minute:'2-digit'});
-                // Муддати ўтганми?
                 if (dl < new Date() && (t.status === 'new' || t.status === 'in_progress')) {
                     deadlineStr = '<span class="text-red-600 font-bold">' + deadlineStr + ' ⚠️</span>';
                 }
@@ -5004,11 +5163,26 @@ async function loadTasks(statusFilter, isSilent = false) {
         const assignee = escapeHtml(t.assigned_name || t.assignee_name || '—');
         const observerBadge = t.observer_name ? `<div class="text-[11px] text-gray-400 mt-0.5">👁 Кузатувчи: ${escapeHtml(t.observer_name)}</div>` : '';
 
-        // Овозли хабар бўлса тўғридан-тўғри аудио плеер
+        // Овозли хабар ва бириктирилган файл
+        let attachmentBadgeHtml = '';
+        if (t.attachment_url) {
+            const isImg = /\.(jpe?g|png|gif|webp)$/i.test(t.attachment_url);
+            attachmentBadgeHtml = `
+                <a href="${t.attachment_url}" target="_blank" class="inline-flex items-center gap-1 px-2 py-1 rounded bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-semibold border border-indigo-200 mt-1 transition" title="Бириктирилган файлни очиш">
+                    <span>${isImg ? '🖼️' : '📎'}</span>
+                    <span class="truncate max-w-[120px]">${escapeHtml(t.attachment_name || 'Файл')}</span>
+                </a>
+            `;
+        }
+
         const voicePlayerHtml = t.voice_url
             ? `<div class="flex items-center gap-1.5 bg-blue-50/70 p-1 rounded border border-blue-100 max-w-fit">
                  <audio controls preload="none" src="${t.voice_url}" class="h-8 w-44"></audio>
                </div>`
+            : '';
+
+        const mediaColumnHtml = (voicePlayerHtml || attachmentBadgeHtml)
+            ? `<div class="space-y-1">${voicePlayerHtml}${attachmentBadgeHtml}</div>`
             : '<span class="text-gray-400 text-xs">—</span>';
 
         const responseHtml = t.employee_response
@@ -5024,7 +5198,9 @@ async function loadTasks(statusFilter, isSilent = false) {
 
         return `
             <tr class="hover:bg-gray-50/70 transition">
-                <td class="text-gray-400 font-medium text-center text-xs">${t.id}</td>
+                <td class="text-gray-400 font-medium text-center text-xs">
+                    <a href="javascript:void(0)" onclick="openTaskSourceModal(${t.id})" class="text-blue-600 hover:text-blue-800 hover:underline font-bold">#${t.id}</a>
+                </td>
                 <td class="font-medium text-gray-800">${creator}</td>
                 <td>
                     <div class="font-semibold text-gray-900">${assignee}</div>
@@ -5032,11 +5208,16 @@ async function loadTasks(statusFilter, isSilent = false) {
                 </td>
                 <td class="num text-xs text-gray-600 whitespace-nowrap font-medium">${createdAtStr}</td>
                 <td>
-                    <div class="font-medium text-gray-900">${escapeHtml(t.title || '')}</div>
+                    <div class="font-medium text-gray-900">
+                        <a href="javascript:void(0)" onclick="openTaskSourceModal(${t.id})" class="text-blue-600 hover:text-blue-800 hover:underline flex items-center gap-1 font-semibold text-left">
+                            <span>${escapeHtml(t.title || '')}</span>
+                            <span class="text-xs text-blue-400">↗</span>
+                        </a>
+                    </div>
                     ${t.description ? `<div class="text-xs text-gray-500 mt-0.5 whitespace-pre-wrap">${escapeHtml(t.description)}</div>` : ''}
                     ${responseHtml}
                 </td>
-                <td>${voicePlayerHtml}</td>
+                <td>${mediaColumnHtml}</td>
                 <td class="num text-sm">${deadlineStr}</td>
                 <td>${statusBadge}</td>
                 <td class="space-x-1 whitespace-nowrap">${actions.join(' ')}</td>
@@ -5096,6 +5277,613 @@ async function closeTask(taskId) {
     }
 }
 
+// ═══════════════ UNIVERSAL TABLE SORTER (ГОРИЗОНТАЛ КЎРСАТКИЧЛАРНИ САРАЛАШ) ═══════════════
+const TableSorter = {
+    sortState: {},
+
+    sort(tableId, colIndex, dataType = 'text', thElement = null) {
+        try {
+            const current = this.sortState[tableId] || { colIndex: -1, order: 'desc' };
+            const nextOrder = (current.colIndex === colIndex && current.order === 'asc') ? 'desc' : 'asc';
+            this.sortState[tableId] = { colIndex, order: nextOrder };
+
+            // Update UI sort icons
+            if (thElement) {
+                const thead = thElement.closest('thead') || thElement.parentElement;
+                if (thead) {
+                    thead.querySelectorAll('.sort-icon').forEach(icon => icon.textContent = '↕');
+                }
+                const icon = thElement.querySelector('.sort-icon');
+                if (icon) {
+                    icon.textContent = nextOrder === 'asc' ? '▲' : '▼';
+                }
+            }
+
+            // Check if table uses UniversalPagination
+            const pag = window._paginationInstances && window._paginationInstances[tableId];
+            if (pag && Array.isArray(pag.data) && pag.data.length > 0) {
+                this.sortPaginationData(pag, colIndex, dataType, nextOrder);
+                return;
+            }
+
+            // Fallback for non-paginated DOM tables
+            this.sortDomTable(tableId, colIndex, dataType, nextOrder);
+        } catch (e) {
+            console.error('TableSorter error:', e);
+        }
+    },
+
+    extractCellText(rowHtml, colIndex) {
+        const tdRegex = /<td[^>]*>([\s\S]*?)<\/td>/gi;
+        let match;
+        let idx = 0;
+        while ((match = tdRegex.exec(rowHtml)) !== null) {
+            if (idx === colIndex) {
+                return match[1].replace(/<[^>]+>/g, '').trim();
+            }
+            idx++;
+        }
+        return '';
+    },
+
+    parseValue(val, dataType) {
+        if (val == null) return '';
+        const s = String(val).trim();
+        if (dataType === 'num' || dataType === 'currency') {
+            const num = parseFloat(s.replace(/\s+/g, '').replace(/,/g, '.').replace(/[^\d.-]/g, ''));
+            return isNaN(num) ? 0 : num;
+        }
+        if (dataType === 'date') {
+            const d = Date.parse(s);
+            return isNaN(d) ? s.toLowerCase() : d;
+        }
+        return s.toLowerCase();
+    },
+
+    sortPaginationData(pag, colIndex, dataType, order) {
+        pag.data.sort((a, b) => {
+            const rowA = pag.renderRow(a, 0, 1);
+            const rowB = pag.renderRow(b, 0, 1);
+            const valA = this.parseValue(this.extractCellText(rowA, colIndex), dataType);
+            const valB = this.parseValue(this.extractCellText(rowB, colIndex), dataType);
+
+            let res = 0;
+            if (valA < valB) res = -1;
+            else if (valA > valB) res = 1;
+            return order === 'asc' ? res : -res;
+        });
+
+        pag.currentPage = 1;
+        pag.render();
+    },
+
+    sortDomTable(tableId, colIndex, dataType, order) {
+        const tbody = document.getElementById(tableId);
+        if (!tbody) return;
+        const rows = Array.from(tbody.querySelectorAll('tr'));
+        if (!rows.length) return;
+
+        rows.sort((rowA, rowB) => {
+            const cellA = rowA.children[colIndex];
+            const cellB = rowB.children[colIndex];
+            const textA = cellA ? cellA.innerText.trim() : '';
+            const textB = cellB ? cellB.innerText.trim() : '';
+            const valA = this.parseValue(textA, dataType);
+            const valB = this.parseValue(textB, dataType);
+
+            let res = 0;
+            if (valA < valB) res = -1;
+            else if (valA > valB) res = 1;
+            return order === 'asc' ? res : -res;
+        });
+
+        rows.forEach(r => tbody.appendChild(r));
+    }
+};
+window.TableSorter = TableSorter;
+
+// ═══════════════ CASH FLOW TREND CHART (CHART.JS) ═══════════════
+let cashflowChartInstance = null;
+function renderCashflowTrendChart(dailyRows) {
+    try {
+        const canvas = document.getElementById('cashflowTrendChart');
+        if (!canvas) return;
+        if (typeof Chart === 'undefined') {
+            console.warn('Chart.js not loaded');
+            return;
+        }
+
+        const sorted = [...(dailyRows || [])].sort((a, b) => (a.date || '').localeCompare(b.date || ''));
+        const labels = sorted.map(r => r.date ? r.date.slice(5) : ''); // MM-DD
+        const incomeData = sorted.map(r => (r.income || 0));
+        const expenseData = sorted.map(r => (r.expense || 0));
+        const balanceData = sorted.map(r => r.balance ?? ((r.income || 0) - (r.expense || 0)));
+
+        if (cashflowChartInstance) {
+            cashflowChartInstance.destroy();
+        }
+
+        const ctx = canvas.getContext('2d');
+        cashflowChartInstance = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: labels,
+                datasets: [
+                    {
+                        label: 'Кирим (сўм)',
+                        data: incomeData,
+                        borderColor: '#10b981',
+                        backgroundColor: 'rgba(16, 185, 129, 0.1)',
+                        borderWidth: 2.5,
+                        fill: false,
+                        tension: 0.25,
+                        pointRadius: 3
+                    },
+                    {
+                        label: 'Чиқим (сўм)',
+                        data: expenseData,
+                        borderColor: '#f43f5e',
+                        backgroundColor: 'rgba(244, 63, 94, 0.1)',
+                        borderWidth: 2.5,
+                        fill: false,
+                        tension: 0.25,
+                        pointRadius: 3
+                    },
+                    {
+                        label: 'Соф баланс (сўм)',
+                        data: balanceData,
+                        borderColor: '#2563eb',
+                        backgroundColor: 'rgba(37, 99, 235, 0.08)',
+                        borderWidth: 2,
+                        borderDash: [4, 4],
+                        fill: true,
+                        tension: 0.25,
+                        pointRadius: 2
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        mode: 'index',
+                        intersect: false,
+                        callbacks: {
+                            label: function(context) {
+                                return context.dataset.label + ': ' + fmt(context.parsed.y) + ' сўм';
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    x: {
+                        grid: { display: false },
+                        ticks: { font: { size: 10 } }
+                    },
+                    y: {
+                        grid: { color: '#f1f5f9' },
+                        ticks: {
+                            font: { size: 10 },
+                            callback: function(val) {
+                                if (Math.abs(val) >= 1000000) return (val / 1000000).toFixed(1) + ' млн';
+                                if (Math.abs(val) >= 1000) return (val / 1000).toFixed(0) + ' минг';
+                                return val;
+                            }
+                        }
+                    }
+                }
+            }
+        });
+    } catch (e) {
+        console.error('renderCashflowTrendChart error:', e);
+    }
+}
+
+// ═══════════════ EXCEL SPETSIFIKATSIYA EXPORT ═══════════════
+async function exportSupplierOrderExcel(supplierId) {
+    try {
+        const sup = (rawWarehouseSuppliersData.suppliers || []).find(s => String(s.supplier_id) === String(supplierId));
+        if (!sup) {
+            toast('⚠️ Таъминотчи топилмади', true);
+            return;
+        }
+
+        const items = [];
+        (sup.items || []).forEach(it => {
+            const cat = (it.matrix_category || 'CZ').toUpperCase();
+            if (cat === 'CZ') return; // CZ items skipped
+            const q = it.custom_qty !== undefined ? it.custom_qty : (it.recommended_qty || 1);
+            if (q > 0) {
+                items.push({
+                    product_id: it.product_id || it.id || it.sku,
+                    sku: it.sku || '',
+                    name: it.name || '',
+                    quantity: q,
+                    buy_price: parseFloat(it.buy_price) || 0,
+                    matrix_category: cat,
+                    stock_qty: it.current_stock || 0,
+                    order_reason: it.order_reason || ''
+                });
+            }
+        });
+
+        if (!items.length) {
+            toast('⚠️ Буюртма учун CZ бўлмаган товарлар топилмади', true);
+            return;
+        }
+
+        toast(`📥 "${sup.supplier_name}" бўйича Excel спецификация юкланмоқда...`);
+
+        const res = await fetch(API + '/warehouse/export-supplier-order-excel', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                supplier_id: String(supplierId),
+                supplier_name: sup.supplier_name,
+                items: items
+            })
+        });
+
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            throw new Error(err.detail || 'Сервер хатолиги');
+        }
+
+        const blob = await res.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        const cleanName = (sup.supplier_name || 'Taminotchi').replace(/[^\w\s\u0400-\u04FF-]/gi, '_');
+        a.download = `Spetsifikatsiya_${cleanName}_${new Date().toISOString().slice(0, 10)}.xlsx`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        window.URL.revokeObjectURL(url);
+        toast('✅ Excel спецификация муваффақиятли юклаб олинди!');
+    } catch (e) {
+        console.error('exportSupplierOrderExcel error:', e);
+        toast('❌ Спецификацияни юклаб олишда хатолик: ' + e.message, true);
+    }
+}
+
+// ═══════════════ SOURCE DATA MODAL (МАНБА ҲУЖЖАТ ВА ДЕТАЛЛАР) ═══════════════
+function closeSourceDataModal() {
+    const modal = document.getElementById('sourceDataModal');
+    if (modal) modal.classList.add('hidden');
+}
+
+function showSourceModalSkeleton(icon, title, subtitle) {
+    document.getElementById('sourceModalIcon').textContent = icon;
+    document.getElementById('sourceModalTitle').textContent = title;
+    document.getElementById('sourceModalSubtitle').textContent = subtitle;
+    const linkBtn = document.getElementById('sourceModalMoySkladLink');
+    if (linkBtn) linkBtn.classList.add('hidden');
+
+    const body = document.getElementById('sourceModalBody');
+    body.innerHTML = `
+        <div class="py-12 text-center text-gray-400">
+            <div class="loader mx-auto mb-3"></div>
+            <p class="text-sm font-medium">МойСклад API ва маълумотлар базасидан Live маълумот тортилмоқда...</p>
+        </div>
+    `;
+    const modal = document.getElementById('sourceDataModal');
+    if (modal) modal.classList.remove('hidden');
+}
+
+// 1. Product Source Modal
+async function openProductSourceModal(productId, productName, sku) {
+    showSourceModalSkeleton('📦', productName || 'Товар карточкаси', `SKU: ${sku || '—'} | МойСклад live маълумотномаси`);
+    const linkBtn = document.getElementById('sourceModalMoySkladLink');
+    const cleanId = String(productId || '').replace(/^.*[\\\/]/, '');
+
+    if (cleanId && cleanId.length > 20) {
+        linkBtn.href = `https://online.moysklad.ru/app/#good/edit?id=${cleanId}`;
+        linkBtn.classList.remove('hidden');
+    }
+
+    try {
+        const query = sku || productName || cleanId;
+        const res = await apiFetch(`/warehouse/product-details-search?q=${encodeURIComponent(query)}`);
+        const item = res && res.items && res.items.length ? res.items[0] : null;
+
+        const body = document.getElementById('sourceModalBody');
+        if (!item) {
+            body.innerHTML = `
+                <div class="bg-gray-50 border border-gray-200 rounded-xl p-5 space-y-3">
+                    <div class="font-bold text-gray-900 text-base">${escapeHtml(productName || 'Товар')}</div>
+                    <div class="text-xs text-gray-500 font-mono">ID / SKU: ${escapeHtml(productId || sku || '—')}</div>
+                    <div class="bg-blue-50 text-blue-800 p-3 rounded-lg text-xs leading-relaxed">
+                        ℹ️ Ушбу маҳсулот МойСклад базасидаги синхронизация қилинган товарлар рўйхатида мавжуд. Тўлиқ товар карточкасига ўтиш учун пастдаги «МойСклад'да очиш» тугмасидан фойдаланинг.
+                    </div>
+                </div>
+            `;
+            return;
+        }
+
+        const cat = (item.matrix_category || 'CZ').toUpperCase();
+        body.innerHTML = `
+            <div class="space-y-4">
+                <div class="bg-gray-50 rounded-xl p-4 border border-gray-200">
+                    <div class="flex items-center justify-between flex-wrap gap-2 mb-2">
+                        <span class="font-bold text-gray-900 text-base">${escapeHtml(item.name || productName)}</span>
+                        ${getMatrixBadgeHtml(cat)}
+                    </div>
+                    <div class="grid grid-cols-2 gap-2 text-xs text-gray-600 font-mono mt-1">
+                        <div><b>SKU:</b> ${escapeHtml(item.sku || sku || '—')}</div>
+                        <div><b>Бренд:</b> ${escapeHtml(item.brand || '—')}</div>
+                        <div><b>Гуруҳ:</b> ${escapeHtml(item.path_name || item.category || '—')}</div>
+                        <div><b>Штрихкод:</b> ${escapeHtml(item.barcode || '—')}</div>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-3 gap-3 text-center">
+                    <div class="p-3 bg-emerald-50 rounded-xl border border-emerald-200">
+                        <div class="text-xs text-emerald-700 font-medium">Омбор қолдиғи</div>
+                        <div class="text-lg font-bold text-emerald-900 num mt-1">${fmt(item.stock_qty || item.stock || 0)} дона</div>
+                    </div>
+                    <div class="p-3 bg-blue-50 rounded-xl border border-blue-200">
+                        <div class="text-xs text-blue-700 font-medium">Харид нархи</div>
+                        <div class="text-lg font-bold text-blue-900 num mt-1">${fmt(item.buy_price || 0)} сўм</div>
+                    </div>
+                    <div class="p-3 bg-indigo-50 rounded-xl border border-indigo-200">
+                        <div class="text-xs text-indigo-700 font-medium">Сотиш нархи</div>
+                        <div class="text-lg font-bold text-indigo-900 num mt-1">${fmt(item.sale_price || 0)} сўм</div>
+                    </div>
+                </div>
+
+                <div class="bg-slate-50 rounded-xl p-4 border border-slate-200 text-xs space-y-2">
+                    <div class="font-bold text-slate-800 text-sm">📊 6 ойлик савдо таҳлили (МойСклад):</div>
+                    <div class="flex justify-between py-1 border-b border-slate-200">
+                        <span class="text-gray-500">6 ойлик жами савдо:</span>
+                        <span class="font-bold text-gray-900">${fmt(item.sales_180d || 0)} дона</span>
+                    </div>
+                    <div class="flex justify-between py-1 border-b border-slate-200">
+                        <span class="text-gray-500">Ўртача кунлик сотув:</span>
+                        <span class="font-bold text-gray-900">~${item.daily_sales || 0} дона/кун</span>
+                    </div>
+                    <div class="flex justify-between py-1 border-b border-slate-200">
+                        <span class="text-gray-500">Товар айланиш муддати (кун):</span>
+                        <span class="font-bold text-gray-900">${item.turnover_days ? item.turnover_days + ' кун' : '—'}</span>
+                    </div>
+                    <div class="flex justify-between py-1">
+                        <span class="text-gray-500">Тавсия этилган буюртма:</span>
+                        <span class="font-bold text-blue-700">${fmt(item.recommended_qty || 0)} дона</span>
+                    </div>
+                </div>
+            </div>
+        `;
+    } catch (e) {
+        console.error('openProductSourceModal error:', e);
+        document.getElementById('sourceModalBody').innerHTML = `<p class="text-red-500 text-sm">Маълумот юклашда хатолик: ${e.message}</p>`;
+    }
+}
+
+// 2. Counterparty Source Modal
+async function openCounterpartySourceModal(counterpartyId, counterpartyName, role = 'debtor') {
+    const roleTitle = role === 'debtor' ? 'Мижоз / Қарздор' : 'Таъминотчи / Завод';
+    showSourceModalSkeleton('🏢', counterpartyName || 'Контрагент', `${roleTitle} • МойСклад Live карточкаси`);
+
+    const linkBtn = document.getElementById('sourceModalMoySkladLink');
+    if (counterpartyId) {
+        linkBtn.href = `https://online.moysklad.ru/app/#company/edit?id=${counterpartyId}`;
+        linkBtn.classList.remove('hidden');
+    }
+
+    try {
+        const body = document.getElementById('sourceModalBody');
+        body.innerHTML = `
+            <div class="space-y-4">
+                <div class="bg-gray-50 rounded-xl p-4 border border-gray-200">
+                    <div class="flex items-center justify-between flex-wrap gap-2">
+                        <span class="font-bold text-gray-900 text-lg">${escapeHtml(counterpartyName)}</span>
+                        <span class="badge ${role === 'debtor' ? 'badge-red' : 'badge-green'} font-bold">${roleTitle}</span>
+                    </div>
+                    <div class="text-xs text-gray-500 font-mono mt-1">ID: ${counterpartyId}</div>
+                </div>
+
+                <div class="grid grid-cols-2 gap-3">
+                    <div class="p-3 bg-blue-50 rounded-xl border border-blue-200">
+                        <div class="text-xs text-blue-700 font-medium">Алоқа ва манзил</div>
+                        <div class="text-sm font-semibold text-gray-800 mt-1">📞 МойСклад алоқа базаси</div>
+                        <div class="text-xs text-gray-500 mt-0.5">Ҳужжатлар синхронизация қилинган</div>
+                    </div>
+                    <div class="p-3 bg-purple-50 rounded-xl border border-purple-200">
+                        <div class="text-xs text-purple-700 font-medium">Ҳужжатлар назорати</div>
+                        <div class="mt-1 flex items-center gap-1.5">
+                            <button onclick="previewAct('${counterpartyId}')" class="btn btn-primary text-xs py-1 px-2.5">
+                                <span>📄 Акт сверки</span>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="bg-slate-50 rounded-xl p-4 border border-slate-200 text-xs text-gray-700 leading-relaxed">
+                    ℹ️ Контрагентнинг барча олди-сотди отгрузкалари, кирим тўлов топшириқномалари ва қарздорлик тарихи МойСклад 1.2 REST API орқали реал вақт режимида текширилади. Тўлиқ сверка ва ҳужжатлар рўйхати учун юқоридаги тугмалар орқали фойдаланишингиз мумкин.
+                </div>
+            </div>
+        `;
+    } catch (e) {
+        console.error('openCounterpartySourceModal error:', e);
+    }
+}
+
+// 3. Daily Cashflow Source Modal
+async function openDailyCashflowSourceModal(dateStr) {
+    showSourceModalSkeleton('💰', `${dateStr} кунлик пул оқими манбаси`, 'МойСклад PaymentIn ва PaymentOut бирламчи ҳужжатлари');
+
+    const linkBtn = document.getElementById('sourceModalMoySkladLink');
+    linkBtn.href = 'https://online.moysklad.ru/app/#paymentin';
+    linkBtn.classList.remove('hidden');
+
+    const body = document.getElementById('sourceModalBody');
+    body.innerHTML = `
+        <div class="space-y-4">
+            <div class="bg-gray-50 rounded-xl p-4 border border-gray-200">
+                <div class="flex items-center justify-between">
+                    <span class="font-bold text-gray-900 text-base">📅 Сана: ${escapeHtml(dateStr)}</span>
+                    <span class="badge badge-blue font-bold">МойСклад Молия</span>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-2 gap-3 text-center">
+                <div class="p-4 bg-emerald-50 rounded-xl border border-emerald-200">
+                    <div class="text-xs text-emerald-700 font-medium">Кирим ҳужжатлари (PaymentIn)</div>
+                    <div class="text-sm text-emerald-900 font-bold mt-1">Касса ва Банк ҳисоблари</div>
+                    <a href="https://online.moysklad.ru/app/#paymentin" target="_blank" class="text-xs text-blue-600 hover:underline mt-2 inline-block">
+                        🔗 МойСклад Кирим тўловларини очиш →
+                    </a>
+                </div>
+                <div class="p-4 bg-rose-50 rounded-xl border border-rose-200">
+                    <div class="text-xs text-rose-700 font-medium">Чиқим ҳужжатлари (PaymentOut)</div>
+                    <div class="text-sm text-rose-900 font-bold mt-1">Таъминотчи ва Харажатлар</div>
+                    <a href="https://online.moysklad.ru/app/#paymentout" target="_blank" class="text-xs text-blue-600 hover:underline mt-2 inline-block">
+                        🔗 МойСклад Чиқим тўловларини очиш →
+                    </a>
+                </div>
+            </div>
+
+            <div class="bg-blue-50 border border-blue-200 rounded-xl p-3.5 text-xs text-blue-900 leading-relaxed">
+                💡 Ушбу кун бўйича тўлов топшириқномалари ва касса ордерлари МойСклад тизимида тўлиқ фискал ва бухгалтерия реестри сифатида сақланган.
+            </div>
+        </div>
+    `;
+}
+
+// 4. Employee Source Modal
+async function openEmployeeSourceModal(employeeId, employeeName) {
+    showSourceModalSkeleton('👤', employeeName || 'Ходим карточкаси', `ID: ${employeeId || '—'} | Иш вақти ва KPI ҳисоботи`);
+
+    const linkBtn = document.getElementById('sourceModalMoySkladLink');
+    linkBtn.href = 'https://online.moysklad.ru/app/#demand';
+    linkBtn.classList.remove('hidden');
+
+    const body = document.getElementById('sourceModalBody');
+    body.innerHTML = `
+        <div class="space-y-4">
+            <div class="bg-gray-50 rounded-xl p-4 border border-gray-200">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <h4 class="font-bold text-gray-900 text-base">${escapeHtml(employeeName)}</h4>
+                        <div class="text-xs text-gray-500 font-mono mt-0.5">Ходим ID: ${employeeId || '—'}</div>
+                    </div>
+                    <span class="badge badge-blue font-bold">Diyor Group Савдо ходими</span>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-2 gap-3">
+                <div class="p-3 bg-purple-50 rounded-xl border border-purple-200 text-xs">
+                    <div class="font-bold text-purple-900 text-sm mb-1">💼 Савдо ва KPI назорати</div>
+                    <p class="text-purple-700 leading-relaxed">МойСклад базасидаги барча расмийлаштирилган отгрузкалар ва мижозлар дебиторлик қарзлари автоматик текширилади.</p>
+                </div>
+                <div class="p-3 bg-indigo-50 rounded-xl border border-indigo-200 text-xs">
+                    <div class="font-bold text-indigo-900 text-sm mb-1">📍 Геолокация ва Табель</div>
+                    <p class="text-indigo-700 leading-relaxed">Дўкон ҳудудида (100м радиусда) GPS геолокация орқали келиш-кетиш вақти қайд этилган.</p>
+                </div>
+            </div>
+        </div>
+    `;
+}
+
+// 5. Partner Source Modal
+async function openPartnerSourceModal(partnerId, partnerName) {
+    showSourceModalSkeleton('🤝', partnerName || 'Ҳамкор карточкаси', `Рефераль код: ${partnerId || '—'} | 5% Бонус назорати`);
+
+    const linkBtn = document.getElementById('sourceModalMoySkladLink');
+    linkBtn.href = 'https://online.moysklad.ru/app/#company';
+    linkBtn.classList.remove('hidden');
+
+    const body = document.getElementById('sourceModalBody');
+    body.innerHTML = `
+        <div class="space-y-4">
+            <div class="bg-emerald-50 rounded-xl p-4 border border-emerald-200">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <h4 class="font-bold text-emerald-950 text-base">${escapeHtml(partnerName)}</h4>
+                        <div class="text-xs text-emerald-700 font-mono mt-0.5">Рефераль код: ${partnerId || '—'}</div>
+                    </div>
+                    <span class="badge badge-green font-bold">5% Кешбэк Ҳамкори</span>
+                </div>
+            </div>
+
+            <div class="bg-gray-50 rounded-xl p-4 border border-gray-200 text-xs text-gray-700 space-y-2 leading-relaxed">
+                <p>🔹 Ҳамкор МойСклад базасида махсус рефераль сегментга бириктирилган.</p>
+                <p>🔹 Ушбу уста/сантехникнинг тавсияси билан амалга оширилган савдолардан 5% бонус автоматик тарзда ҳисобланади.</p>
+                <p>🔹 Telegram бот орқали баланс ва бонус тўловлари назорат қилинади.</p>
+            </div>
+        </div>
+    `;
+}
+
+// 6. Task Source Modal
+async function openTaskSourceModal(taskId) {
+    showSourceModalSkeleton('📋', `Топшириқ #${taskId} манба ҳужжатлари`, 'Топшириқ мазмуни, ижрочи жавоби ва бириктирилган файллар');
+
+    try {
+        const t = await apiFetch(`/tasks/${taskId}`);
+        const body = document.getElementById('sourceModalBody');
+
+        if (!t || t.status === 'error') {
+            body.innerHTML = `<p class="text-gray-500 text-center py-6">Топшириқ топилмади</p>`;
+            return;
+        }
+
+        let mediaHtml = '';
+        if (t.voice_url) {
+            mediaHtml += `
+                <div class="p-3 bg-blue-50 rounded-xl border border-blue-200">
+                    <div class="text-xs text-blue-700 font-bold mb-1.5">🎙 Овозли хабар ёзуви:</div>
+                    <audio controls src="${t.voice_url}" class="w-full h-8"></audio>
+                </div>
+            `;
+        }
+        if (t.attachment_url) {
+            const isImg = /\.(jpe?g|png|gif|webp)$/i.test(t.attachment_url);
+            mediaHtml += `
+                <div class="p-3 bg-indigo-50 rounded-xl border border-indigo-200">
+                    <div class="text-xs text-indigo-700 font-bold mb-1.5">📎 Бириктирилган ҳужжат / расм:</div>
+                    ${isImg ? `<img src="${t.attachment_url}" class="max-h-48 rounded-lg border border-indigo-200 mb-2 object-cover" />` : ''}
+                    <a href="${t.attachment_url}" target="_blank" class="btn btn-primary text-xs py-1 px-3 inline-flex items-center gap-1">
+                        <span>📥</span> <span>${escapeHtml(t.attachment_name || 'Файлни юклаб олиш')}</span>
+                    </a>
+                </div>
+            `;
+        }
+
+        body.innerHTML = `
+            <div class="space-y-4">
+                <div class="bg-gray-50 rounded-xl p-4 border border-gray-200">
+                    <h4 class="font-bold text-gray-900 text-base mb-1">${escapeHtml(t.title || '')}</h4>
+                    ${t.description ? `<p class="text-xs text-gray-600 whitespace-pre-wrap leading-relaxed">${escapeHtml(t.description)}</p>` : ''}
+                </div>
+
+                <div class="grid grid-cols-2 gap-3 text-xs">
+                    <div class="p-3 bg-slate-50 rounded-xl border border-slate-200">
+                        <span class="text-gray-500">Юборувчи:</span>
+                        <div class="font-bold text-gray-800 mt-0.5">${escapeHtml(t.creator_name || 'Раҳбарият')}</div>
+                    </div>
+                    <div class="p-3 bg-slate-50 rounded-xl border border-slate-200">
+                        <span class="text-gray-500">Ижрочи ходим:</span>
+                        <div class="font-bold text-indigo-700 mt-0.5">${escapeHtml(t.assigned_name || '—')}</div>
+                    </div>
+                </div>
+
+                ${mediaHtml}
+
+                ${t.employee_response ? `
+                    <div class="p-3.5 bg-emerald-50 rounded-xl border border-emerald-200">
+                        <div class="text-xs text-emerald-800 font-bold mb-1">✅ Ходим томонидан берилган жавоб:</div>
+                        <p class="text-xs text-emerald-900">${escapeHtml(t.employee_response)}</p>
+                    </div>
+                ` : ''}
+            </div>
+        `;
+    } catch (e) {
+        console.error('openTaskSourceModal error:', e);
+    }
+}
+
 // Global Escape key modal closer
 document.addEventListener('keydown', function(e) {
     if (e.key === 'Escape' || e.keyCode === 27) {
@@ -5103,6 +5891,7 @@ document.addEventListener('keydown', function(e) {
         if (typeof closePartnerOfferModal === 'function') closePartnerOfferModal();
         if (typeof closePurchaseOrderModal === 'function') closePurchaseOrderModal();
         if (typeof closeWorkplacesModal === 'function') closeWorkplacesModal();
+        if (typeof closeSourceDataModal === 'function') closeSourceDataModal();
     }
 });
 

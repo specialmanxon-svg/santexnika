@@ -37,6 +37,8 @@ class TaskCreate(BaseModel):
     deadline: Optional[str] = Field(None, description="Муддат ISO формат (YYYY-MM-DDTHH:MM)")
     voice_url: Optional[str] = Field(None, description="Овозли хабар URL")
     voice_file_id: Optional[str] = Field(None, description="Telegram voice file ID")
+    attachment_url: Optional[str] = Field(None, description="Илова қилинган файл/расм URL")
+    attachment_name: Optional[str] = Field(None, description="Илова қилинган файл номи")
 
 
 class TaskUpdate(BaseModel):
@@ -55,10 +57,14 @@ class TaskUpdate(BaseModel):
     status: Optional[str] = None
     voice_url: Optional[str] = None
     voice_file_id: Optional[str] = None
+    attachment_url: Optional[str] = None
+    attachment_name: Optional[str] = None
 
 
 class TaskResponse(BaseModel):
     text: str = Field(..., description="Ходим жавоби / ҳисоботи")
+    attachment_url: Optional[str] = Field(None, description="Илова қилинган расм/ҳужжат URL")
+    attachment_name: Optional[str] = Field(None, description="Илова файли номи")
 
 
 class TaskStatusUpdate(BaseModel):
@@ -85,6 +91,8 @@ class TaskOut(BaseModel):
     employee_response: Optional[str] = None
     voice_url: Optional[str] = None
     voice_file_id: Optional[str] = None
+    attachment_url: Optional[str] = None
+    attachment_name: Optional[str] = None
     reminder_sent: int = 0
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
@@ -415,6 +423,8 @@ def _task_to_out(t: Task) -> TaskOut:
         employee_response=t.employee_response,
         voice_url=t.voice_url,
         voice_file_id=t.voice_file_id,
+        attachment_url=getattr(t, "attachment_url", None),
+        attachment_name=getattr(t, "attachment_name", None),
         reminder_sent=t.reminder_sent or 0,
         created_at=t.created_at.isoformat() if t.created_at else None,
         updated_at=t.updated_at.isoformat() if t.updated_at else None,
@@ -647,6 +657,8 @@ async def create_task(data: TaskCreate):
             status="new",
             voice_url=data.voice_url,
             voice_file_id=data.voice_file_id,
+            attachment_url=data.attachment_url,
+            attachment_name=data.attachment_name,
         )
         session.add(task)
         await session.commit()
@@ -802,6 +814,11 @@ async def update_task(task_id: int, data: TaskUpdate):
             except ValueError:
                 raise HTTPException(status_code=400, detail="Нотўғри муддат формати")
 
+        if data.attachment_url is not None:
+            task.attachment_url = data.attachment_url
+        if data.attachment_name is not None:
+            task.attachment_name = data.attachment_name
+
         task.updated_at = datetime.utcnow()
         await session.commit()
         await session.refresh(task)
@@ -817,6 +834,10 @@ async def respond_to_task(task_id: int, data: TaskResponse):
             raise HTTPException(status_code=404, detail="Топшириқ топилмади")
 
         task.employee_response = data.text
+        if data.attachment_url is not None:
+            task.attachment_url = data.attachment_url
+        if data.attachment_name is not None:
+            task.attachment_name = data.attachment_name
         if task.status == "new":
             task.status = "in_progress"
         task.updated_at = datetime.utcnow()
@@ -827,11 +848,12 @@ async def respond_to_task(task_id: int, data: TaskResponse):
         try:
             bot = get_bot()
             ceo_chat_id = task.creator_chat_id or os.getenv("TELEGRAM_CEO_CHAT_ID") or "5950380558"
+            att_text = f"\n📎 <b>Илова:</b> <a href=\"{data.attachment_url}\">Ҳужжат/Расмни кўриш</a>" if data.attachment_url else ""
             text = (
                 f"📩 <b>ХОДИМ ЖАВОБИ — Топшириқ #{task.id}</b>\n\n"
                 f"👤 <b>Ижрочи:</b> {task.assigned_name}\n"
                 f"📌 <b>Мавзу:</b> {task.title}\n"
-                f"💬 <b>Жавоб:</b>\n{data.text}\n"
+                f"💬 <b>Жавоб:</b>\n{data.text}{att_text}\n"
             )
             await bot.send_message(chat_id=ceo_chat_id, text=text, parse_mode="HTML")
             await bot.session.close()
@@ -840,6 +862,33 @@ async def respond_to_task(task_id: int, data: TaskResponse):
 
         logger.info("task_response_received", task_id=task.id, employee=task.assigned_name)
         return _task_to_out(task)
+
+
+@router.post("/upload-attachment", summary="Топшириққа расм ёки ҳужжат юклаш")
+async def upload_task_attachment(file: UploadFile = File(...)):
+    """Топшириққа бириктириш учун расм ёки ҳужжат юклаш."""
+    try:
+        ext = Path(file.filename or "attachment").suffix.lower()
+        if not ext:
+            ext = ".bin"
+        safe_name = f"task_{uuid.uuid4().hex[:12]}{ext}"
+        upload_dir = Path(__file__).resolve().parent.parent.parent / "static" / "uploads" / "tasks"
+        upload_dir.mkdir(parents=True, exist_ok=True)
+        disk_path = upload_dir / safe_name
+
+        content = await file.read()
+        with open(disk_path, "wb") as f:
+            f.write(content)
+
+        return {
+            "success": True,
+            "url": f"/static/uploads/tasks/{safe_name}",
+            "filename": file.filename or safe_name,
+            "size": len(content)
+        }
+    except Exception as e:
+        logger.error("upload_task_attachment_failed", error=str(e))
+        raise HTTPException(status_code=500, detail=f"Файл юклашда хатолик: {str(e)}")
 
 
 @router.put("/{task_id}/status", response_model=TaskOut)

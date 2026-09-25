@@ -22,6 +22,17 @@ class Settings(BaseSettings):
     database_url_sync: str = Field(default=f"sqlite:///{DEFAULT_DB_PATH}", description="Sync database connection string")
 
     def model_post_init(self, __context):
+        # Auto-correct Render / Supabase PostgreSQL URLs
+        if self.database_url.startswith("postgres://"):
+            self.database_url = self.database_url.replace("postgres://", "postgresql+asyncpg://", 1)
+        elif self.database_url.startswith("postgresql://") and not self.database_url.startswith("postgresql+asyncpg://"):
+            self.database_url = self.database_url.replace("postgresql://", "postgresql+asyncpg://", 1)
+
+        if self.database_url_sync.startswith("postgresql+asyncpg://"):
+            self.database_url_sync = self.database_url_sync.replace("postgresql+asyncpg://", "postgresql://", 1)
+        elif self.database_url_sync.startswith("postgres://"):
+            self.database_url_sync = self.database_url_sync.replace("postgres://", "postgresql://", 1)
+
         if self.database_url.startswith("sqlite+aiosqlite:///.") or self.database_url == "sqlite+aiosqlite:///diyorgroup.db":
             self.database_url = f"sqlite+aiosqlite:///{DEFAULT_DB_PATH}"
         if self.database_url_sync.startswith("sqlite:///.") or self.database_url_sync == "sqlite:///diyorgroup.db":
