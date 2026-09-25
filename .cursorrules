@@ -1,0 +1,14 @@
+# Diyor Group Project Rules for Cursor & AI Agents
+
+# Tech Stack:
+- Backend: FastAPI, SQLAlchemy 2.0 (async), SQLite (aiosqlite), Python 3.11 (virtualenv at .venv)
+- Frontend: Vanilla JavaScript, Tailwind CSS (CDN), Chart.js, SheetJS
+- Integrations: MoySklad JSON API 1.2, aiogram 3.31.0, Whisper STT
+
+# Mandatory Rules:
+1. Always maintain 100% strict identity between `index.html` and `dashboard.html`. Any edit to one must be copied to the other.
+2. Every FastAPI endpoint must have robust `try ... except Exception as e` handling, returning safe non-blocking responses on error.
+3. MoySklad API has a hard rate limit of 5 requests/sec. Heavy endpoints must cache responses and never block the main loop.
+4. CSS z-index rules: Sticky top container = 1000 (`z-40`), Modals and overlays = 2000 (`z-50`).
+5. AI skills reside in `.agent/skills/`. Never edit source files inside `.agent/skills/`.
+6. Refer to `PROJECT_RULES.md` and `.claude/skill-stack-overlay.md` for complete technical details.
