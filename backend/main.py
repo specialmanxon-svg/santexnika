@@ -54,9 +54,9 @@ structlog.configure(
 
 
 async def _demand_hard_lock_monitor():
-    """Background real-time monitor for blocked counterparty shipments (4s polling)."""
+    """Background real-time monitor for blocked counterparty shipments (15s polling)."""
     logger.info("hard_lock_demand_monitor_started")
-    await asyncio.sleep(2)  # Initial grace delay
+    await asyncio.sleep(5)  # Initial grace delay
     while True:
         try:
             from api.v1.webhook import check_recent_demands
@@ -65,34 +65,37 @@ async def _demand_hard_lock_monitor():
             break
         except Exception as e:
             logger.warning("hard_lock_demand_monitor_error", error=str(e))
-        await asyncio.sleep(4)
+        await asyncio.sleep(15)
 
 
 async def _keep_alive_monitor():
-    """Background keep-alive self-ping (every 8 minutes) to prevent server idling on cloud platforms."""
+    """Background keep-alive self-ping (every 4 minutes) to prevent server idling on cloud platforms."""
     logger.info("keep_alive_monitor_started")
-    await asyncio.sleep(60)  # Initial grace delay
+    await asyncio.sleep(30)  # Initial grace delay
     import httpx
     while True:
         try:
-            target_urls = [
-                "http://127.0.0.1:8000/health",
-                "https://santexnika.onrender.com/health"
-            ]
-            async with httpx.AsyncClient(timeout=10.0) as client:
-                for url in target_urls:
-                    try:
-                        resp = await client.get(url)
-                        if resp.status_code == 200:
-                            logger.info("keep_alive_ping_success", url=url)
-                            break
-                    except Exception:
-                        pass
+            # We explicitly ping the public HTTPS domain so Render edge routing registers active traffic!
+            public_url = "https://santexnika.onrender.com/health"
+            local_url = "http://127.0.0.1:8000/health"
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                # 1. External ping to keep Render active
+                try:
+                    resp = await client.get(public_url)
+                    if resp.status_code == 200:
+                        logger.info("keep_alive_external_ping_success", url=public_url, status=resp.status_code)
+                except Exception as ex_err:
+                    logger.debug("keep_alive_external_ping_skipped", error=str(ex_err))
+                # 2. Local loopback ping
+                try:
+                    await client.get(local_url)
+                except Exception:
+                    pass
         except asyncio.CancelledError:
             break
         except Exception as e:
             logger.warning("keep_alive_ping_warning", error=str(e))
-        await asyncio.sleep(480)  # 8 minutes
+        await asyncio.sleep(240)  # 4 minutes (well within Render 15-min idle cutoff)
 
 
 @asynccontextmanager
