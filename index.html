@@ -3763,14 +3763,25 @@ async function loadBrandMargin(forceRefresh = false) {
             const marginVal = b.margin ?? ((b.sales || 0) - (b.cost || 0));
             const marginPctVal = Number(b.margin_percent ?? (b.sales > 0 ? (marginVal / b.sales * 100) : 0));
             const badgeClass = marginPctVal >= 25 ? 'badge-green' : marginPctVal >= 10 ? 'badge-blue' : marginPctVal >= 0 ? 'badge-yellow' : 'badge-red';
-            const brandName = escapeHtml(b.brand || 'Бошқа брендлар');
+            const rawBrand = b.brand || 'Бошқа брендлар';
+            const brandName = escapeHtml(rawBrand);
+            const encodedBrand = encodeURIComponent(rawBrand);
+            const isOther = rawBrand === 'Бошқа брендлар' || rawBrand === 'Boshqa brendlar';
+            const msUrl = b.moysklad_url || (isOther ? 'https://online.moysklad.ru/app/#profit' : `https://online.moysklad.ru/app/#good?search=${encodedBrand}`);
+            const reportUrl = b.report_url || 'https://online.moysklad.ru/app/#profit';
 
             return `
                 <tr class="data-row hover:bg-gray-50 transition">
                     <td class="text-center text-gray-400 font-semibold text-xs">${rowNum}</td>
-                    <td class="font-bold text-gray-900 flex items-center gap-2">
-                        <span class="inline-block w-2.5 h-2.5 rounded-full bg-indigo-500"></span>
-                        <span>${brandName}</span>
+                    <td class="font-bold text-gray-900">
+                        <div class="flex items-center gap-2">
+                            <span class="inline-block w-2.5 h-2.5 rounded-full bg-indigo-500 shrink-0"></span>
+                            <a href="javascript:void(0)" onclick="openBrandSourceModal('${escapeJs(rawBrand)}', ${Number(b.sales || 0)}, ${Number(b.cost || 0)}, ${Number(marginVal)}, ${Number(marginPctVal)}, '${escapeJs(msUrl)}')" class="text-blue-600 hover:text-blue-800 hover:underline flex items-center gap-1 font-semibold text-left">
+                                <span>${brandName}</span>
+                                <span class="text-xs text-blue-400">↗</span>
+                            </a>
+                            <a href="${msUrl}" target="_blank" rel="noopener noreferrer" class="text-xs text-gray-400 hover:text-indigo-600 ml-1 hover:scale-125 transition-transform" title="МойСклад саҳифасига тўғридан-тўғри ўтиш">🔗</a>
+                        </div>
                     </td>
                     <td class="num font-semibold text-gray-800">${fmt(b.sales || 0)} сўм</td>
                     <td class="num text-gray-600">${fmt(b.cost || 0)} сўм</td>
@@ -6085,6 +6096,88 @@ async function openTaskSourceModal(taskId) {
         console.error('openTaskSourceModal error:', e);
     }
 }
+
+// 7. Brand Margin & Profit Source Modal (МойСклад Прибыльность)
+async function openBrandSourceModal(brandName, sales = 0, cost = 0, margin = 0, marginPercent = 0, customUrl = '') {
+    const title = brandName || 'Бренд';
+    showSourceModalSkeleton('🏷️', `${title} — Маржа ва фойда таҳлили`, 'МойСклад «Прибыльность по товарам» ҳисоботи');
+
+    const linkBtn = document.getElementById('sourceModalMoySkladLink');
+    const isOther = brandName === 'Бошқа брендлар' || brandName === 'Boshqa brendlar';
+    const encodedBrand = encodeURIComponent(brandName || '');
+    const goodsSearchUrl = `https://online.moysklad.ru/app/#good?search=${encodedBrand}`;
+    const reportUrl = 'https://online.moysklad.ru/app/#profit';
+
+    // Direct link to MoySklad report/goods
+    linkBtn.href = customUrl || (isOther ? reportUrl : goodsSearchUrl);
+    linkBtn.classList.remove('hidden');
+
+    const body = document.getElementById('sourceModalBody');
+    const marginBadgeClass = marginPercent >= 25 ? 'badge-green' : marginPercent >= 10 ? 'badge-blue' : marginPercent >= 0 ? 'badge-yellow' : 'badge-red';
+
+    body.innerHTML = `
+        <div class="space-y-4">
+            <div class="bg-gray-50 rounded-xl p-4 border border-gray-200">
+                <div class="flex items-center justify-between flex-wrap gap-2">
+                    <div class="flex items-center gap-2">
+                        <span class="inline-block w-3.5 h-3.5 rounded-full bg-indigo-500"></span>
+                        <h4 class="font-bold text-gray-900 text-lg">${escapeHtml(brandName)}</h4>
+                    </div>
+                    <span class="badge ${marginBadgeClass} font-bold text-sm px-3 py-1">${marginPercent >= 0 ? '+' : ''}${Number(marginPercent).toFixed(1)}% маржа</span>
+                </div>
+                <div class="text-xs text-gray-500 font-mono mt-1">Манба: MoySklad 1.2 REST API (/report/profit/byproduct)</div>
+            </div>
+
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-2.5 text-center">
+                <div class="p-3 bg-blue-50 rounded-xl border border-blue-200">
+                    <div class="text-[11px] text-blue-700 font-medium">Савдо ҳажми</div>
+                    <div class="text-base font-bold text-blue-950 num mt-1">${fmt(sales)} сўм</div>
+                </div>
+                <div class="p-3 bg-gray-50 rounded-xl border border-gray-200">
+                    <div class="text-[11px] text-gray-600 font-medium">Таннарх (COGS)</div>
+                    <div class="text-base font-bold text-gray-900 num mt-1">${fmt(cost)} сўм</div>
+                </div>
+                <div class="p-3 bg-emerald-50 rounded-xl border border-emerald-200">
+                    <div class="text-[11px] text-emerald-700 font-medium">Ялпи фойда</div>
+                    <div class="text-base font-bold ${margin >= 0 ? 'text-emerald-900' : 'text-red-600'} num mt-1">${margin >= 0 ? '+' : ''}${fmt(margin)} сўм</div>
+                </div>
+                <div class="p-3 bg-indigo-50 rounded-xl border border-indigo-200">
+                    <div class="text-[11px] text-indigo-700 font-medium">Маржадорлик</div>
+                    <div class="text-base font-bold text-indigo-900 num mt-1">${Number(marginPercent).toFixed(1)}%</div>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1">
+                <a href="${reportUrl}" target="_blank" rel="noopener noreferrer" class="p-3.5 bg-gradient-to-r from-blue-50 to-indigo-50 hover:from-blue-100 hover:to-indigo-100 border border-blue-200 rounded-xl flex items-center justify-between text-left transition group">
+                    <div>
+                        <div class="text-xs font-bold text-blue-900 group-hover:text-blue-700 flex items-center gap-1.5">
+                            <span>📊</span>
+                            <span>МойСклад «Прибыльность» саҳифаси</span>
+                        </div>
+                        <div class="text-[11px] text-blue-600/80 mt-0.5">Ушбу давр фойда ва таннарх ҳисоботи</div>
+                    </div>
+                    <span class="text-blue-500 font-bold text-sm">↗</span>
+                </a>
+
+                <a href="${goodsSearchUrl}" target="_blank" rel="noopener noreferrer" class="p-3.5 bg-gradient-to-r from-emerald-50 to-teal-50 hover:from-emerald-100 hover:to-teal-100 border border-emerald-200 rounded-xl flex items-center justify-between text-left transition group">
+                    <div>
+                        <div class="text-xs font-bold text-emerald-900 group-hover:text-emerald-700 flex items-center gap-1.5">
+                            <span>📦</span>
+                            <span>«${escapeHtml(brandName)}» товарлар каталоги</span>
+                        </div>
+                        <div class="text-[11px] text-emerald-600/80 mt-0.5">МойСклад'да бренд қолдиқ ва нархлари</div>
+                    </div>
+                    <span class="text-emerald-500 font-bold text-sm">↗</span>
+                </a>
+            </div>
+
+            <div class="bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs text-gray-600 leading-relaxed">
+                💡 <b>Маълумот манбаси:</b> Ушбу бренд кўрсаткичлари МойСклад тизимидаги /report/profit/byproduct ҳисоботи, реализациялар ва харид таннархи асосида реал вақт режимида тортиб олинган.
+            </div>
+        </div>
+    `;
+}
+window.openBrandSourceModal = openBrandSourceModal;
 
 // Global Escape key modal closer
 document.addEventListener('keydown', function(e) {
