@@ -1308,12 +1308,12 @@
                     <table class="w-full text-left">
                         <thead>
                             <tr class="bg-gray-50 text-gray-600 text-xs border-b">
-                                <th class="w-10">#</th>
-                                <th>Объект номи</th>
-                                <th>Манзили</th>
+                                <th class="w-10 sortable" onclick="TableSorter.sort('workplaces-table-body', 0, 'num', this)"># <span class="sort-icon text-gray-400">↕</span></th>
+                                <th class="sortable" onclick="TableSorter.sort('workplaces-table-body', 1, 'text', this)">Объект номи <span class="sort-icon text-gray-400">↕</span></th>
+                                <th class="sortable" onclick="TableSorter.sort('workplaces-table-body', 2, 'text', this)">Манзили <span class="sort-icon text-gray-400">↕</span></th>
                                 <th>Координаталари</th>
-                                <th>Радиус</th>
-                                <th>Ҳолат</th>
+                                <th class="sortable" onclick="TableSorter.sort('workplaces-table-body', 4, 'num', this)">Радиус <span class="sort-icon text-gray-400">↕</span></th>
+                                <th class="sortable" onclick="TableSorter.sort('workplaces-table-body', 5, 'text', this)">Ҳолат <span class="sort-icon text-gray-400">↕</span></th>
                                 <th class="text-right">Амаллар</th>
                             </tr>
                         </thead>
@@ -5378,17 +5378,76 @@ async function closeTask(taskId) {
     }
 }
 
-// ═══════════════ UNIVERSAL TABLE SORTER (ГОРИЗОНТАЛ КЎРСАТКИЧЛАРНИ САРАЛАШ) ═══════════════
+// ═══════════════ DATA SORTING & UNIVERSAL TABLE SORTER (БАРЧА МОДУЛЛАРДА САРАЛАШ) ═══════════════
+let sortDirection = true; // true: A-Z / ўсиш бўйича, false: Z-A / камайиш бўйича
+
+function sortTableData(data, key, type = 'string', isAsc = null) {
+    if (!Array.isArray(data) || data.length === 0) return [];
+
+    if (isAsc === null) {
+        sortDirection = !sortDirection;
+        isAsc = sortDirection;
+    }
+
+    return [...data].sort((a, b) => {
+        let valA = (typeof a === 'object' && a !== null) ? a[key] : a;
+        let valB = (typeof b === 'object' && b !== null) ? b[key] : b;
+
+        // Null / undefined қийматларни охирига суриш
+        if (valA == null && valB == null) return 0;
+        if (valA == null) return 1;
+        if (valB == null) return -1;
+
+        // 1. Саннар / Рақамлар учун (Сумма, сон, қолдиқ)
+        if (type === 'number' || type === 'num' || type === 'currency') {
+            const numA = typeof valA === 'number'
+                ? valA
+                : parseFloat(String(valA).replace(/\s+/g, '').replace(/,/g, '.').replace(/[^\d.-]/g, '')) || 0;
+            const numB = typeof valB === 'number'
+                ? valB
+                : parseFloat(String(valB).replace(/\s+/g, '').replace(/,/g, '.').replace(/[^\d.-]/g, '')) || 0;
+            return isAsc ? numA - numB : numB - numA;
+        }
+
+        // 2. Вакыт / Дата (Сана ва вақт) бўйича
+        if (type === 'date') {
+            const parseDateMs = (v) => {
+                if (v instanceof Date) return v.getTime();
+                const str = String(v).trim();
+                const dmy = str.match(/^(\d{1,2})[./-](\d{1,2})[./-](\d{4})(?:\s+(\d{1,2}):(\d{2}))?/);
+                if (dmy) {
+                    return new Date(parseInt(dmy[3], 10), parseInt(dmy[2], 10) - 1, parseInt(dmy[1], 10), parseInt(dmy[4] || 0, 10), parseInt(dmy[5] || 0, 10)).getTime();
+                }
+                const parsed = Date.parse(str);
+                return isNaN(parsed) ? 0 : parsed;
+            };
+            const timeA = parseDateMs(valA);
+            const timeB = parseDateMs(valB);
+            return isAsc ? timeA - timeB : timeB - timeA;
+        }
+
+        // 3. Әлифба буенча (текст) - ўзбек тили ('uz') локали ва рақамлар тартиби
+        const strA = String(valA).trim();
+        const strB = String(valB).trim();
+        return isAsc
+            ? strA.localeCompare(strB, 'uz', { sensitivity: 'base', numeric: true })
+            : strB.localeCompare(strA, 'uz', { sensitivity: 'base', numeric: true });
+    });
+}
+window.sortTableData = sortTableData;
+
 const TableSorter = {
     sortState: {},
 
-    sort(tableId, colIndex, dataType = 'text', thElement = null) {
+    sort(tableId, colIndex, dataType = 'string', thElement = null) {
         try {
             const current = this.sortState[tableId] || { colIndex: -1, order: 'desc' };
             const nextOrder = (current.colIndex === colIndex && current.order === 'asc') ? 'desc' : 'asc';
+            const isAsc = (nextOrder === 'asc');
             this.sortState[tableId] = { colIndex, order: nextOrder };
+            sortDirection = isAsc;
 
-            // Update UI sort icons
+            // Update UI sort icons in table header
             if (thElement) {
                 const thead = thElement.closest('thead') || thElement.parentElement;
                 if (thead) {
@@ -5396,19 +5455,23 @@ const TableSorter = {
                 }
                 const icon = thElement.querySelector('.sort-icon');
                 if (icon) {
-                    icon.textContent = nextOrder === 'asc' ? '▲' : '▼';
+                    icon.textContent = isAsc ? '▲' : '▼';
                 }
             }
+
+            let typeName = dataType;
+            if (dataType === 'text') typeName = 'string';
+            if (dataType === 'num' || dataType === 'currency') typeName = 'number';
 
             // Check if table uses UniversalPagination
             const pag = window._paginationInstances && window._paginationInstances[tableId];
             if (pag && Array.isArray(pag.data) && pag.data.length > 0) {
-                this.sortPaginationData(pag, colIndex, dataType, nextOrder);
+                this.sortPaginationData(pag, colIndex, typeName, isAsc);
                 return;
             }
 
             // Fallback for non-paginated DOM tables
-            this.sortDomTable(tableId, colIndex, dataType, nextOrder);
+            this.sortDomTable(tableId, colIndex, typeName, isAsc);
         } catch (e) {
             console.error('TableSorter error:', e);
         }
@@ -5427,58 +5490,46 @@ const TableSorter = {
         return '';
     },
 
-    parseValue(val, dataType) {
-        if (val == null) return '';
-        const s = String(val).trim();
-        if (dataType === 'num' || dataType === 'currency') {
-            const num = parseFloat(s.replace(/\s+/g, '').replace(/,/g, '.').replace(/[^\d.-]/g, ''));
-            return isNaN(num) ? 0 : num;
-        }
-        if (dataType === 'date') {
-            const d = Date.parse(s);
-            return isNaN(d) ? s.toLowerCase() : d;
-        }
-        return s.toLowerCase();
-    },
+    sortPaginationData(pag, colIndex, typeName, isAsc) {
+        const cache = new Map();
+        const getVal = (item) => {
+            if (cache.has(item)) return cache.get(item);
+            const rowHtml = pag.renderRow(item, 0, 1);
+            const text = this.extractCellText(rowHtml, colIndex);
+            cache.set(item, text);
+            return text;
+        };
 
-    sortPaginationData(pag, colIndex, dataType, order) {
         pag.data.sort((a, b) => {
-            const rowA = pag.renderRow(a, 0, 1);
-            const rowB = pag.renderRow(b, 0, 1);
-            const valA = this.parseValue(this.extractCellText(rowA, colIndex), dataType);
-            const valB = this.parseValue(this.extractCellText(rowB, colIndex), dataType);
-
-            let res = 0;
-            if (valA < valB) res = -1;
-            else if (valA > valB) res = 1;
-            return order === 'asc' ? res : -res;
+            const valA = getVal(a);
+            const valB = getVal(b);
+            const sortedPair = sortTableData([{ v: valA }, { v: valB }], 'v', typeName, isAsc);
+            return sortedPair[0].v === valA ? -1 : 1;
         });
 
         pag.currentPage = 1;
         pag.render();
     },
 
-    sortDomTable(tableId, colIndex, dataType, order) {
+    sortDomTable(tableId, colIndex, typeName, isAsc) {
         const tbody = document.getElementById(tableId);
         if (!tbody) return;
         const rows = Array.from(tbody.querySelectorAll('tr'));
         if (!rows.length) return;
 
-        rows.sort((rowA, rowB) => {
+        const validRows = rows.filter(r => r.children.length > 1);
+        if (!validRows.length) return;
+
+        validRows.sort((rowA, rowB) => {
             const cellA = rowA.children[colIndex];
             const cellB = rowB.children[colIndex];
             const textA = cellA ? cellA.innerText.trim() : '';
             const textB = cellB ? cellB.innerText.trim() : '';
-            const valA = this.parseValue(textA, dataType);
-            const valB = this.parseValue(textB, dataType);
-
-            let res = 0;
-            if (valA < valB) res = -1;
-            else if (valA > valB) res = 1;
-            return order === 'asc' ? res : -res;
+            const sortedPair = sortTableData([{ r: rowA, v: textA }, { r: rowB, v: textB }], 'v', typeName, isAsc);
+            return sortedPair[0].r === rowA ? -1 : 1;
         });
 
-        rows.forEach(r => tbody.appendChild(r));
+        validRows.forEach(r => tbody.appendChild(r));
     }
 };
 window.TableSorter = TableSorter;
