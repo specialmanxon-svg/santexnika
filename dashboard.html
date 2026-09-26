@@ -1401,15 +1401,23 @@ var escapeHtml = window.escapeHtml;
 const DEFAULT_RENDER_API = 'https://santexnika.onrender.com';
 
 function getInitialBaseUrl() {
-    try {
-        const custom = localStorage.getItem('diyor_backend_url');
-        if (custom && custom.trim()) return custom.trim().replace(/\/+$/, '');
-    } catch (e) {}
-
     const isLocal = window.location.hostname === 'localhost' || 
                     window.location.hostname === '127.0.0.1' || 
                     window.location.protocol === 'file:';
-    
+
+    try {
+        const custom = localStorage.getItem('diyor_backend_url');
+        if (custom && custom.trim()) {
+            const trimmed = custom.trim().replace(/\/+$/, '');
+            // Агар домен интернетда бўлса (масалан: diyorgroup.uz), лекин браузер хотирасида 127.0.0.1 сақланиб қолган бўлса, уни автоматик тозалаймиз
+            if (!isLocal && (trimmed.includes('127.0.0.1') || trimmed.includes('localhost'))) {
+                localStorage.removeItem('diyor_backend_url');
+            } else {
+                return trimmed;
+            }
+        }
+    } catch (e) {}
+
     if (isLocal) {
         return 'http://127.0.0.1:8000';
     }
@@ -1427,19 +1435,22 @@ let BASE_URL = getInitialBaseUrl();
 let API = (BASE_URL ? BASE_URL : '') + '/api/v1';
 
 function promptBackendUrl() {
-    const current = BASE_URL || (window.location.origin + ' (авто)');
+    const current = BASE_URL || DEFAULT_RENDER_API;
     const entered = prompt(
-        "FastAPI Backend (Render.com) HTTPS манзилини киритинг:\n(Масалан: https://santexnika.onrender.com ёки http://127.0.0.1:8000)\n\nБўш қолдирилса стандарт қийматга қайтади:",
-        BASE_URL || DEFAULT_RENDER_API
+        "FastAPI Backend (Render.com) HTTPS манзилини киритинг:\n(Стандарт булутли манзил: " + DEFAULT_RENDER_API + ")\n\nБўш қолдирилса стандарт қийматга қайтади:",
+        current
     );
     if (entered !== null) {
         const clean = entered.trim().replace(/\/+$/, '');
         try {
             if (!clean || clean === DEFAULT_RENDER_API) {
                 localStorage.removeItem('diyor_backend_url');
+                BASE_URL = DEFAULT_RENDER_API;
             } else {
                 localStorage.setItem('diyor_backend_url', clean);
+                BASE_URL = clean;
             }
+            API = (BASE_URL ? BASE_URL : '') + '/api/v1';
         } catch (e) {}
         window.location.reload();
     }
@@ -1725,6 +1736,30 @@ async function apiFetch(url, timeoutMs = 45000) {
         return await res.json();
     } catch (e) {
         clearTimeout(timeoutId);
+        // Failover: if current BASE_URL failed and we are not on localhost, attempt DEFAULT_RENDER_API
+        const isLocalHost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+        if (!isLocalHost && BASE_URL !== DEFAULT_RENDER_API) {
+            console.warn(`[API Failover] Primary ${API} failed, attempting ${DEFAULT_RENDER_API}...`);
+            try {
+                const fbCtrl = new AbortController();
+                const fbTimeout = setTimeout(() => fbCtrl.abort(), timeoutMs);
+                const fbRes = await fetch(DEFAULT_RENDER_API + '/api/v1' + url, { signal: fbCtrl.signal });
+                clearTimeout(fbTimeout);
+                if (fbRes.ok) {
+                    BASE_URL = DEFAULT_RENDER_API;
+                    API = DEFAULT_RENDER_API + '/api/v1';
+                    try { localStorage.removeItem('diyor_backend_url'); } catch (_) {}
+                    const statusEl = document.getElementById('apiStatus');
+                    if (statusEl) {
+                        statusEl.innerHTML = `🟢 МойСклад API Уланди <span class="font-normal text-gray-500">(Render Cloud)</span>`;
+                        statusEl.className = 'text-xs text-green-700 font-bold bg-green-50 px-3 py-1 rounded-full border border-green-200 shadow-sm';
+                    }
+                    return await fbRes.json();
+                }
+            } catch (fbErr) {
+                console.error('[API Failover Error]:', fbErr);
+            }
+        }
         if (e.name === 'AbortError') {
             console.warn(`API Timeout (${timeoutMs}ms):`, url);
         } else {
@@ -1748,6 +1783,26 @@ async function apiPost(url, body = {}, timeoutMs = 45000) {
         return await res.json();
     } catch (e) {
         clearTimeout(timeoutId);
+        const isLocalHost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+        if (!isLocalHost && BASE_URL !== DEFAULT_RENDER_API) {
+            try {
+                const fbCtrl = new AbortController();
+                const fbTimeout = setTimeout(() => fbCtrl.abort(), timeoutMs);
+                const fbRes = await fetch(DEFAULT_RENDER_API + '/api/v1' + url, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(body),
+                    signal: fbCtrl.signal
+                });
+                clearTimeout(fbTimeout);
+                if (fbRes.ok) {
+                    BASE_URL = DEFAULT_RENDER_API;
+                    API = DEFAULT_RENDER_API + '/api/v1';
+                    try { localStorage.removeItem('diyor_backend_url'); } catch (_) {}
+                    return await fbRes.json();
+                }
+            } catch (_) {}
+        }
         if (e.name === 'AbortError') {
             console.warn(`API Post Timeout (${timeoutMs}ms):`, url);
         } else {
@@ -4317,8 +4372,8 @@ async function loadTimesheet(isBackground = false) {
         const data = await apiFetch(`/hr/overview?${q}`);
         if (!data) {
             if (!isBackground) {
-                if (tbodyTS) tbodyTS.innerHTML = '<tr><td colspan="7" class="text-center text-red-500 py-8">❌ Давомад маълумотларини юклашда хатолик</td></tr>';
-                if (tbodyKPI) tbodyKPI.innerHTML = '<tr><td colspan="5" class="text-center text-red-500 py-8">❌ KPI маълумотларини юклашда хатолик</td></tr>';
+                if (tbodyTS) tbodyTS.innerHTML = '<tr><td colspan="7" class="text-center text-red-500 py-8">❌ Давомад маълумотларини юклашда хатолик. <button onclick="loadTimesheet()" class="ml-2 underline font-bold text-primary cursor-pointer">🔄 Қайта юклаш</button></td></tr>';
+                if (tbodyKPI) tbodyKPI.innerHTML = '<tr><td colspan="5" class="text-center text-red-500 py-8">❌ KPI маълумотларини юклашда хатолик. <button onclick="loadTimesheet()" class="ml-2 underline font-bold text-primary cursor-pointer">🔄 Қайта юклаш</button></td></tr>';
             }
             return;
         }
@@ -4469,8 +4524,8 @@ async function loadTimesheet(isBackground = false) {
     } catch (err) {
         console.error('loadTimesheet error:', err);
         if (!isBackground) {
-            if (tbodyTS) tbodyTS.innerHTML = '<tr><td colspan="7" class="text-center text-red-500 py-8">Маълумотларни юклашда хатолик</td></tr>';
-            if (tbodyKPI) tbodyKPI.innerHTML = '<tr><td colspan="5" class="text-center text-red-500 py-8">Маълумотларни юклашда хатолик</td></tr>';
+            if (tbodyTS) tbodyTS.innerHTML = '<tr><td colspan="7" class="text-center text-red-500 py-8">Маълумотларни юклашда хатолик. <button onclick="loadTimesheet()" class="ml-2 underline font-bold text-primary cursor-pointer">🔄 Қайта юклаш</button></td></tr>';
+            if (tbodyKPI) tbodyKPI.innerHTML = '<tr><td colspan="5" class="text-center text-red-500 py-8">Маълумотларни юклашда хатолик. <button onclick="loadTimesheet()" class="ml-2 underline font-bold text-primary cursor-pointer">🔄 Қайта юклаш</button></td></tr>';
         }
     } finally {
         if (refreshIcon) refreshIcon.textContent = '📋';
@@ -4729,17 +4784,50 @@ async function loadReferralStats(forceRefresh = false) {
 async function checkApiStatus() {
     const statusEl = document.getElementById('apiStatus');
     const docs = document.getElementById('apiDocsLink');
-    if (docs) docs.href = (BASE_URL || '') + '/docs';
+    if (docs) docs.href = (BASE_URL || DEFAULT_RENDER_API) + '/docs';
 
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 6000);
+    if (statusEl) {
+        statusEl.innerHTML = '⏳ Серверга уланмоқда...';
+        statusEl.className = 'text-xs text-blue-600 font-medium bg-blue-50 px-3 py-1 rounded-full border border-blue-200 animate-pulse';
+    }
 
-    try {
-        const res = await fetch((BASE_URL || '') + '/health', { signal: controller.signal });
-        clearTimeout(timeoutId);
-        if (!res.ok) throw new Error('HTTP ' + res.status);
-        const data = await res.json();
-        if (data.status === 'healthy') {
+    const testHealth = async (baseUrl, timeout = 35000) => {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), timeout);
+        try {
+            const targetUrl = (baseUrl ? baseUrl.replace(/\/+$/, '') : '') + '/health';
+            const res = await fetch(targetUrl, { signal: controller.signal });
+            clearTimeout(timeoutId);
+            if (!res.ok) return null;
+            return await res.json();
+        } catch (e) {
+            clearTimeout(timeoutId);
+            return null;
+        }
+    };
+
+    let data = await testHealth(BASE_URL || '');
+
+    // If initial BASE_URL failed and it is not DEFAULT_RENDER_API, fallback to DEFAULT_RENDER_API
+    const isLocalHost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+    if (!data && BASE_URL !== DEFAULT_RENDER_API && !isLocalHost) {
+        console.warn(`checkApiStatus: Primary endpoint (${BASE_URL}) failed, checking ${DEFAULT_RENDER_API}...`);
+        const fallbackData = await testHealth(DEFAULT_RENDER_API);
+        if (fallbackData) {
+            BASE_URL = DEFAULT_RENDER_API;
+            API = DEFAULT_RENDER_API + '/api/v1';
+            try { localStorage.removeItem('diyor_backend_url'); } catch (_) {}
+            data = fallbackData;
+            // Refresh data for currently active tab
+            try {
+                const curTab = localStorage.getItem('activeDiyorTab') || 'warehouse';
+                switchTab(curTab);
+            } catch (_) {}
+        }
+    }
+
+    if (statusEl) {
+        if (data && data.status === 'healthy') {
             const ms = data.moysklad || {};
             if (ms.connected) {
                 statusEl.innerHTML = `🟢 МойСклад API Уланди <span class="font-normal text-gray-500">(${ms.organization || 'Diyor Group'})</span>`;
@@ -4748,16 +4836,29 @@ async function checkApiStatus() {
                 statusEl.innerHTML = `🟡 API ишчи, МойСклад: ${ms.error || 'уланмаган'}`;
                 statusEl.className = 'text-xs text-yellow-800 font-medium bg-yellow-50 px-3 py-1 rounded-full border border-yellow-200';
             }
+            if (docs) docs.href = (BASE_URL || DEFAULT_RENDER_API) + '/docs';
         } else {
-            statusEl.innerHTML = '🔴 API хатоси';
-            statusEl.className = 'text-xs text-red-600 font-semibold';
+            const displayUrl = BASE_URL || window.location.origin;
+            statusEl.innerHTML = `🔴 API уланмади (<span class="font-mono text-gray-700 font-bold">${escapeHtml(displayUrl)}</span>) <button onclick="resetAndRetryApi()" class="ml-1.5 underline font-bold hover:text-red-800 cursor-pointer">🔄 Қайта уланиш</button>`;
+            statusEl.className = 'text-xs text-red-600 font-semibold bg-red-50 px-2.5 py-1 rounded-full border border-red-200';
         }
-    } catch (err) {
-        clearTimeout(timeoutId);
-        statusEl.innerHTML = '🔴 API уланмади (<a href="http://127.0.0.1:8000/dashboard" target="_blank" class="underline font-bold">http://127.0.0.1:8000/dashboard</a>)';
-        statusEl.className = 'text-xs text-red-600 font-semibold bg-red-50 px-2.5 py-1 rounded-full border border-red-200';
     }
 }
+
+window.resetAndRetryApi = function() {
+    try { localStorage.removeItem('diyor_backend_url'); } catch (_) {}
+    const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+    BASE_URL = isLocal ? 'http://127.0.0.1:8000' : DEFAULT_RENDER_API;
+    API = (BASE_URL ? BASE_URL : '') + '/api/v1';
+    checkApiStatus().then(() => {
+        try {
+            const curTab = localStorage.getItem('activeDiyorTab') || 'warehouse';
+            switchTab(curTab);
+        } catch (_) {
+            window.location.reload();
+        }
+    });
+};
 
 // ═══════════════ INITIAL TAB RESTORATION ═══════════════
 function restoreInitialTab() {
