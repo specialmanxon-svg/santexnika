@@ -185,6 +185,7 @@ async def get_debts_overview(
                     "last_demand_date": last_demand_display,
                     "status": status,
                     "is_blocked": is_blocked,
+                    "moysklad_url": f"https://online.moysklad.ru/app/#company/edit?id={cp_id}",
                     "company_type": cp.get("companyType") or cp_det.get("company_type", "legal"),
                     "aging": {
                         "0_30_days": debt_val if days_overdue <= 30 else 0.0,
@@ -228,6 +229,7 @@ async def get_debts_overview(
                     "days": days_overdue,
                     "last_demand_date": last_demand_display,
                     "status": "Тўланиши керак",
+                    "moysklad_url": f"https://online.moysklad.ru/app/#company/edit?id={cp_id}",
                     "company_type": cp.get("companyType") or cp_det.get("company_type", "legal")
                 })
 

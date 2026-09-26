@@ -2973,7 +2973,10 @@ function renderLowStockSuppliers() {
                     <span class="text-2xl">🏢</span>
                     <div>
                         <h4 class="font-bold text-gray-900 text-base leading-snug flex items-center gap-2">
-                            <span>${escapeHtml(sup.supplier_name)}</span>
+                            <a href="${sId ? `https://online.moysklad.ru/app/#company/edit?id=${encodeURIComponent(sId)}` : 'https://online.moysklad.ru/app/#company'}" target="_blank" rel="noopener noreferrer" class="hover:text-blue-600 hover:underline inline-flex items-center gap-1 group" title="МойСклад саҳифасига ўтиш (янги ойнада)">
+                                <span>${escapeHtml(sup.supplier_name)}</span>
+                                <span class="text-xs text-blue-400 group-hover:text-blue-600">↗</span>
+                            </a>
                             ${isOrdered ? `<span class="badge badge-green font-bold text-xs py-0.5 px-2">✅ Буюртма берилган (№${orderNo})</span>` : ''}
                         </h4>
                         <div class="text-xs text-gray-500">
@@ -3298,6 +3301,7 @@ function renderDebtorsTable() {
         const cid = d.id || d.moysklad_id;
         const safeName = (d.name || '').replace(/'/g, "\\'");
         const isBlocked = !!d.is_blocked;
+        const msUrl = d.moysklad_url || (cid ? `https://online.moysklad.ru/app/#company/edit?id=${encodeURIComponent(cid)}` : 'https://online.moysklad.ru/app/#company');
 
         const lockBtn = isBlocked
             ? `<button class="btn btn-success text-xs py-1.5 px-3 flex items-center gap-1 shadow-sm font-semibold" onclick="toggleHardLock('${cid}', 'unblock', '${safeName}')" title="Блокдан чиқариш (МойСклад'да савдога рухсат бериш)"><span>🔓 Блокдан чиқариш</span></button>`
@@ -3310,9 +3314,9 @@ function renderDebtorsTable() {
                 <td class="text-gray-400 font-semibold text-center text-xs">${rowNum}</td>
                 <td>
                     <div class="font-semibold text-gray-900">
-                        <a href="javascript:void(0)" onclick="openCounterpartySourceModal('${escapeJs(cid)}', '${escapeJs(d.name || '')}', 'debtor')" class="text-blue-600 hover:text-blue-800 hover:underline flex items-center gap-1 text-left">
+                        <a href="${msUrl}" target="_blank" rel="noopener noreferrer" class="text-blue-600 hover:text-blue-800 hover:underline inline-flex items-center gap-1 text-left group" title="МойСклад саҳифасига ўтиш (янги ойнада)">
                             <span>${escapeHtml(d.name || '—')}</span>
-                            <span class="text-xs text-blue-400">↗</span>
+                            <span class="text-xs text-blue-400 group-hover:text-blue-600">↗</span>
                         </a>
                     </div>
                     <div class="text-xs text-purple-700 font-medium mt-0.5">👤 Масъул сотувчи: <b>${escapeHtml(d.seller_name || 'Тайинланмаган')}</b></div>
@@ -3445,14 +3449,15 @@ async function loadCreditorsList() {
     initPagination('debtors-table', items, (c, i, rowNum) => {
         const cid = c.id || c.moysklad_id;
         const safeName = (c.name || '').replace(/'/g, "\\'");
+        const msUrl = c.moysklad_url || (cid ? `https://online.moysklad.ru/app/#company/edit?id=${encodeURIComponent(cid)}` : 'https://online.moysklad.ru/app/#company');
         return `
             <tr class="hover:bg-gray-50/70 transition">
                 <td class="text-gray-400 font-semibold text-center text-xs">${rowNum}</td>
                 <td>
                     <div class="font-medium text-gray-900">
-                        <a href="javascript:void(0)" onclick="openCounterpartySourceModal('${escapeJs(cid)}', '${escapeJs(c.name || '')}', 'creditor')" class="text-blue-600 hover:text-blue-800 hover:underline flex items-center gap-1 text-left">
+                        <a href="${msUrl}" target="_blank" rel="noopener noreferrer" class="text-blue-600 hover:text-blue-800 hover:underline inline-flex items-center gap-1 text-left group" title="МойСклад саҳифасига ўтиш (янги ойнада)">
                             <span>${escapeHtml(c.name || '—')}</span>
-                            <span class="text-xs text-blue-400">↗</span>
+                            <span class="text-xs text-blue-400 group-hover:text-blue-600">↗</span>
                         </a>
                     </div>
                     <div class="text-xs text-gray-500 font-mono">${c.phone && c.phone !== '—' ? '📞 ' + escapeHtml(c.phone) : ''} ${c.last_demand_date && c.last_demand_date !== '—' ? '• Ҳужжат: ' + escapeHtml(c.last_demand_date) : ''}</div>
@@ -3651,6 +3656,36 @@ async function loadExpensesByCategory(forceRefresh = false) {
             'bg-pink-500'
         ];
 
+        const EXPENSE_MS_LINKS = {
+            'Перемещение': 'https://online.moysklad.ru/app/#expenseitem/edit?id=4e1c05f2-0673-11e6-a655-0cc47a342ca4',
+            'Пул ўтказмалари (Перемещение)': 'https://online.moysklad.ru/app/#expenseitem/edit?id=4e1c05f2-0673-11e6-a655-0cc47a342ca4',
+            'Закупка товаров': 'https://online.moysklad.ru/app/#expenseitem/edit?id=8dbf9374-0a01-11e4-b9bf-002590a32f46',
+            'Товарлар хариди (Закупка)': 'https://online.moysklad.ru/app/#expenseitem/edit?id=8dbf9374-0a01-11e4-b9bf-002590a32f46',
+            'Зарплата': 'https://online.moysklad.ru/app/#expenseitem/edit?id=c5efe798-b1a3-11ed-0a80-0bcd00043479',
+            'Иш ҳақи (Зарплата)': 'https://online.moysklad.ru/app/#expenseitem/edit?id=c5efe798-b1a3-11ed-0a80-0bcd00043479',
+            'Логистика': 'https://online.moysklad.ru/app/#expenseitem/edit?id=2a252aa9-1bed-11ee-0a80-13cb00247033',
+            'Транспорт ва логистика': 'https://online.moysklad.ru/app/#expenseitem/edit?id=2a252aa9-1bed-11ee-0a80-13cb00247033',
+            'Выплата тела кредита': 'https://online.moysklad.ru/app/#expenseitem/edit?id=70b46251-48f6-11f0-0a80-07270087e9c0',
+            'Кредит асосий қарзи тўлови': 'https://online.moysklad.ru/app/#expenseitem/edit?id=70b46251-48f6-11f0-0a80-07270087e9c0',
+            'Налоги и сборы': 'https://online.moysklad.ru/app/#expenseitem/edit?id=8dbf9a86-0a01-11e4-a190-002590a32f46',
+            'Солиқлар ва йиғимлар': 'https://online.moysklad.ru/app/#expenseitem/edit?id=8dbf9a86-0a01-11e4-a190-002590a32f46',
+            'Маркетинг и реклама': 'https://online.moysklad.ru/app/#expenseitem/edit?id=c5f0313a-b1a3-11ed-0a80-0bcd0004347a',
+            'Маркетинг ва реклама': 'https://online.moysklad.ru/app/#expenseitem/edit?id=c5f0313a-b1a3-11ed-0a80-0bcd0004347a',
+            'Проценты по кредиту': 'https://online.moysklad.ru/app/#expenseitem/edit?id=70b82782-48f6-11f0-0a80-07270087e9c5',
+            'Кредит фоизлари тўлови': 'https://online.moysklad.ru/app/#expenseitem/edit?id=70b82782-48f6-11f0-0a80-07270087e9c5',
+            'Коммунальные': 'https://online.moysklad.ru/app/#expenseitem/edit?id=7138b6cc-74f1-11ee-0a80-00d60000930b',
+            'Коммунал тўловлар': 'https://online.moysklad.ru/app/#expenseitem/edit?id=7138b6cc-74f1-11ee-0a80-00d60000930b',
+            'Прочие': 'https://online.moysklad.ru/app/#expenseitem/edit?id=f5f7e4c5-cfdc-11ee-0a80-156100101c38',
+            'Бошқа харажатлар': 'https://online.moysklad.ru/app/#expenseitem/edit?id=f5f7e4c5-cfdc-11ee-0a80-156100101c38',
+            'Озиқ-овқат харажатлари': 'https://online.moysklad.ru/app/#expenseitem/edit?id=fd806374-1a27-11ee-0a80-044900036637',
+            'Таъмирлаш харажатлари (Ремонт)': 'https://online.moysklad.ru/app/#expenseitem/edit?id=e905ae5e-6e42-11ee-0a80-088a0004ff86',
+            'Қайтарилган маблағлар (Возврат)': 'https://online.moysklad.ru/app/#expenseitem/edit?id=8dbf99a0-0a01-11e4-a743-002590a32f46',
+            'Ижара (Аренда)': 'https://online.moysklad.ru/app/#expenseitem/edit?id=c5ef5b48-b1a3-11ed-0a80-0bcd00043478',
+            'Асосий воситалар хариди': 'https://online.moysklad.ru/app/#expenseitem/edit?id=54e7c4b2-47d3-11f0-0a80-024900563186',
+            'Фойда олиш (Дивиденд)': 'https://online.moysklad.ru/app/#expenseitem/edit?id=70b6a2f5-48f6-11f0-0a80-07270087e9c3',
+            'Ҳисобдан чиқариш (Списание)': 'https://online.moysklad.ru/app/#expenseitem/edit?id=59c98ad6-eded-11e4-8ace-0cc47a02273e'
+        };
+
         initPagination('expenses-table', data, (item, idx, rowNum) => {
             const pct = Number(item.percentage ?? (totalSum > 0 ? (item.amount / totalSum * 100) : 0)).toFixed(1);
             const color = colorPalette[(rowNum - 1) % colorPalette.length];
@@ -3658,11 +3693,26 @@ async function loadExpensesByCategory(forceRefresh = false) {
                                Number(pct) >= 15 ? 'bg-amber-100 text-amber-800' :
                                Number(pct) >= 5 ? 'bg-blue-100 text-blue-800' : 'bg-gray-100 text-gray-700';
 
+            const catName = item.category || item.expense_item || 'Бошқа харажатлар';
+            const msUrl = item.moysklad_url || EXPENSE_MS_LINKS[catName] || 'https://online.moysklad.ru/app/#expenseitem';
+
             return `
                 <tr class="data-row hover:bg-gray-50 transition">
-                    <td class="font-medium text-gray-900 flex items-center gap-2">
-                        <span class="inline-block w-2.5 h-2.5 rounded-full ${color}"></span>
-                        <span>${escapeHtml(item.category || item.expense_item || 'Бошқа харажатлар')}</span>
+                    <td class="font-medium text-gray-900">
+                        <div class="flex items-center justify-between gap-2">
+                            <a href="${msUrl}" target="_blank" rel="noopener noreferrer" 
+                               class="hover:text-blue-600 hover:underline flex items-center gap-2 group transition" 
+                               title="МойСкладда «${escapeHtml(catName)}» саҳифасини очиш">
+                                <span class="inline-block w-2.5 h-2.5 rounded-full ${color} shrink-0"></span>
+                                <span class="font-semibold text-gray-900 group-hover:text-blue-600">${escapeHtml(catName)}</span>
+                                <span class="text-blue-500 text-xs opacity-60 group-hover:opacity-100 group-hover:translate-x-0.5 transition-all">↗</span>
+                            </a>
+                            <a href="https://online.moysklad.ru/app/#paymentout" target="_blank" rel="noopener noreferrer"
+                               class="text-[11px] text-gray-400 hover:text-blue-700 hover:bg-blue-50 border border-transparent hover:border-blue-200 px-1.5 py-0.5 rounded transition shrink-0" 
+                               title="МойСклад: Чиқим тўловларини очиш (PaymentOut)">
+                                💳 Чиқим
+                            </a>
+                        </div>
                     </td>
                     <td class="num font-semibold text-rose-700">-${fmt(item.amount || 0)} сўм</td>
                     <td class="num">

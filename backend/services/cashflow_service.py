@@ -2,6 +2,7 @@
 import time
 import asyncio
 import re
+import urllib.parse
 import structlog
 from typing import Dict, Any, Optional, List
 from datetime import datetime
@@ -488,13 +489,18 @@ class CashFlowService:
                 c = round(bdata["cost"], 2)
                 m = round(bdata["margin"], 2)
                 pct = round((m / s * 100.0), 2) if s > 0 else 0.0
+                encoded_bname = urllib.parse.quote(str(bname))
+                is_other = bname in ["Бошқа брендлар", "Boshqa brendlar"]
+                moysklad_url = "https://online.moysklad.ru/app/#profit" if is_other else f"https://online.moysklad.ru/app/#good?search={encoded_bname}"
                 brand_margin.append({
                     "brand": bname,
                     "category": bname,
                     "sales": s,
                     "cost": c,
                     "margin": m,
-                    "margin_percent": pct
+                    "margin_percent": pct,
+                    "moysklad_url": moysklad_url,
+                    "report_url": "https://online.moysklad.ru/app/#profit"
                 })
             brand_margin.sort(key=lambda x: x["sales"], reverse=True)
             category_margin = brand_margin
@@ -611,6 +617,7 @@ class CashFlowService:
             cash_out = gathered[2] if isinstance(gathered[2], list) else []
 
             category_sums: Dict[str, float] = {}
+            category_ids: Dict[str, str] = {}
             total_expenses = 0.0
 
             for p in payment_out + cash_out:
@@ -620,11 +627,13 @@ class CashFlowService:
 
                 exp_obj = p.get("expenseItem")
                 name = None
+                exp_id = None
                 if isinstance(exp_obj, dict):
                     name = exp_obj.get("name")
-                    if not name and exp_obj.get("meta", {}).get("href"):
-                        href = exp_obj.get("meta", {}).get("href", "")
-                        exp_id = href.split("/")[-1] if href else None
+                    href = exp_obj.get("meta", {}).get("href", "")
+                    if href:
+                        exp_id = href.split("/")[-1]
+                    if not name and exp_id:
                         name = exp_map.get(exp_id)
 
                 if not name or not str(name).strip():
@@ -632,16 +641,33 @@ class CashFlowService:
 
                 clean_name = EXPENSE_CATEGORY_NAMES.get(name, name)
                 category_sums[clean_name] = category_sums.get(clean_name, 0.0) + amt
+                if exp_id and clean_name not in category_ids:
+                    category_ids[clean_name] = exp_id
                 total_expenses += amt
+
+            name_to_id = {v.lower().strip(): k for k, v in exp_map.items()}
+            clean_to_orig = {clean: orig for orig, clean in EXPENSE_CATEGORY_NAMES.items()}
 
             result = []
             for cat, amt in sorted(category_sums.items(), key=lambda x: x[1], reverse=True):
                 pct = round((amt / total_expenses * 100.0), 1) if total_expenses > 0 else 0.0
+                orig_name = clean_to_orig.get(cat, cat)
+                ms_id = category_ids.get(cat) or name_to_id.get(orig_name.lower().strip()) or name_to_id.get(cat.lower().strip())
+
+                if ms_id:
+                    moysklad_url = f"https://online.moysklad.ru/app/#expenseitem/edit?id={ms_id}"
+                else:
+                    moysklad_url = "https://online.moysklad.ru/app/#expenseitem"
+
                 result.append({
                     "category": cat,
                     "expense_item": cat,
                     "amount": round(amt, 2),
-                    "percentage": pct
+                    "percentage": pct,
+                    "moysklad_id": ms_id,
+                    "moysklad_name": orig_name,
+                    "moysklad_url": moysklad_url,
+                    "moysklad_payments_url": "https://online.moysklad.ru/app/#paymentout"
                 })
 
             self._expenses_cache["ts"] = now_ts

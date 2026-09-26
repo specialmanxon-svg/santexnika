@@ -588,7 +588,7 @@ class HRService:
         """
         cache_key = f"{period}_{from_date}_{to_date}"
         now_ts = time.time()
-        if _KPI_CACHE.get("key") == cache_key and (now_ts - _KPI_CACHE.get("ts", 0.0) < 60.0) and _KPI_CACHE.get("data"):
+        if _KPI_CACHE.get("key") == cache_key and (now_ts - _KPI_CACHE.get("ts", 0.0) < 300.0) and _KPI_CACHE.get("data"):
             return _KPI_CACHE["data"]
 
         now = datetime.now()
@@ -672,9 +672,15 @@ class HRService:
         # Calculate debts and overdue debtors per salesperson from MoySklad
         seller_debt_stats: Dict[str, Dict[str, Any]] = {}
         try:
-            reports = await self.ms_client.get_all_counterparty_reports()
-            details_map = await self.ms_client.get_counterparty_details_map()
-            demand_sellers = await self.ms_client.get_latest_demand_sellers()
+            gathered_debt = await asyncio.gather(
+                self.ms_client.get_all_counterparty_reports(),
+                self.ms_client.get_counterparty_details_map(),
+                self.ms_client.get_latest_demand_sellers(),
+                return_exceptions=True
+            )
+            reports = gathered_debt[0] if isinstance(gathered_debt[0], list) else []
+            details_map = gathered_debt[1] if isinstance(gathered_debt[1], dict) else {}
+            demand_sellers = gathered_debt[2] if isinstance(gathered_debt[2], dict) else {}
 
             all_sellers = list(sales_map.keys())
 
@@ -852,8 +858,11 @@ class HRService:
         """
         Unified overview endpoint returning attendance list, sales KPI, and store coordinates.
         """
-        attendance_list = await self.get_timesheets(session, date_from=from_date, date_to=to_date)
-        kpi_data = await self.get_sales_kpi(period, from_date=from_date, to_date=to_date)
+        attendance_task = self.get_timesheets(session, date_from=from_date, date_to=to_date)
+        kpi_task = self.get_sales_kpi(period, from_date=from_date, to_date=to_date)
+        gathered = await asyncio.gather(attendance_task, kpi_task, return_exceptions=True)
+        attendance_list = gathered[0] if isinstance(gathered[0], list) else []
+        kpi_data = gathered[1] if isinstance(gathered[1], dict) else {}
         store_info = self.get_store_location()
 
         return {
